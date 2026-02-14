@@ -1,213 +1,315 @@
 // ============================================
 // SETUP SCRIPT FOR NOODLE SHOP SYSTEM
-// Google Sheets Structure Initialization
-// Version: 1.0.0
+// Version: 2.1.0 (Fixed UI Context Issue)
+// Google Sheets ID: 1g2rOFvKwPOXWSCnl5Pb_7V21mhrYIX6w_E-L2XhlXMY
 // ============================================
 
 /**
- * ฟังก์ชันหลักสำหรับตั้งค่าระบบทั้งหมด
- * เรียกใช้ครั้งแรกเมื่อติดตั้งระบบ
+ * ฟังก์ชันหลักสำหรับสร้างชีตทั้งหมด (เรียกผ่าน Editor)
+ * ใช้สำหรับรันจาก Apps Script Editor โดยตรง
  */
 function initialSetup() {
   try {
-    // สร้าง UI Dialog เพื่อยืนยันการตั้งค่า
+    // บันทึกข้อความเริ่มต้น
+    console.log('🚀 เริ่มสร้างโครงสร้างชีต...');
+    
+    // รับค่า Spreadsheet ที่กำลังใช้งานอยู่
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheetId = ss.getId();
+    
+    console.log('📊 Spreadsheet ID: ' + spreadsheetId);
+    
+    // สร้างชีตทั้งหมด
+    createConfigSheet(ss);
+    createUsersSheet(ss);
+    createMenuSheet(ss);
+    createOrdersSheet(ss);
+    createLogsSheet(ss);
+    
+    // ตั้งค่าเริ่มต้น
+    setupInitialData(ss);
+    
+    // แสดงข้อความสำเร็จ
+    console.log('✅ สร้างโครงสร้างชีตเรียบร้อยแล้ว!');
+    
+    // ไม่ใช้ SpreadsheetApp.getUi() ในที่นี้เพราะเรียกจาก Editor
+    
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาด: ' + error.toString());
+  }
+}
+
+/**
+ * ฟังก์ชันสำหรับเรียกผ่านเมนู (มี UI)
+ */
+function setupFromMenu() {
+  try {
     const ui = SpreadsheetApp.getUi();
+    
+    // ขอ確認ก่อนดำเนินการ
     const response = ui.alert(
-      '⚠️ ตั้งค่าระบบร้านก๋วยเตี๋ยว',
-      'ระบบจะสร้างชีตและโครงสร้างข้อมูลทั้งหมดที่มีอยู่แล้วจะถูกลบ (ข้อมูลเก่าจะหายไป) คุณต้องการดำเนินการต่อหรือไม่?',
+      '⚠️ ยืนยันการตั้งค่าระบบ',
+      'ระบบจะสร้างชีตทั้งหมดใหม่ (Config, Users, Menu, Orders, Logs) และลบข้อมูลเก่า\n\nคุณต้องการดำเนินการต่อหรือไม่?',
       ui.ButtonSet.YES_NO
     );
-
+    
     if (response !== ui.Button.YES) {
       ui.alert('❌ ยกเลิกการตั้งค่า');
       return;
     }
-
-    // เริ่มต้นการตั้งค่า
-    Logger.log('🚀 เริ่มต้นการตั้งค่าระบบ...');
     
-    // ลบชีตเก่าทั้งหมด (ยกเว้นชีตที่จำเป็น)
-    resetSheets();
+    // เรียกฟังก์ชันตั้งค่า
+    initialSetup();
     
-    // สร้างชีตใหม่ทั้งหมด
-    createConfigSheet();
-    createUsersSheet();
-    createMenuSheet();
-    createOrdersSheet();
-    createLogsSheet();
-    
-    // เพิ่มข้อมูลตัวอย่าง (Optional)
-    const addSampleData = ui.alert(
-      'เพิ่มข้อมูลตัวอย่าง?',
-      'ต้องการเพิ่มข้อมูลตัวอย่างสำหรับทดสอบหรือไม่? (เมนูตัวอย่าง, ผู้ใช้ตัวอย่าง)',
-      ui.ButtonSet.YES_NO
+    // แสดงผลผ่าน UI
+    ui.alert(
+      '✅ สำเร็จ', 
+      'สร้างชีตทั้งหมดเรียบร้อยแล้ว:\n- Config\n- Users\n- Menu\n- Orders\n- Logs',
+      ui.ButtonSet.OK
     );
     
-    if (addSampleData === ui.Button.YES) {
-      addSampleData();
-    }
-    
-    // ตั้งค่า ScriptProperties ถ้ายังไม่มี
-    setupScriptProperties();
-    
-    // สร้างเมนูแบบกำหนดเองใน Google Sheets
-    createCustomMenu();
-    
-    // แสดงสรุปผลการตั้งค่า
-    showSetupSummary();
-    
-    Logger.log('✅ ตั้งค่าระบบเสร็จสมบูรณ์');
-    
   } catch (error) {
-    Logger.log('❌ เกิดข้อผิดพลาด: ' + error.toString());
-    SpreadsheetApp.getUi().alert('❌ เกิดข้อผิดพลาด: ' + error.toString());
+    SpreadsheetApp.getUi().alert(
+      '❌ ข้อผิดพลาด', 
+      'เกิดข้อผิดพลาด: ' + error.toString(),
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   }
 }
 
 /**
- * ล้างชีตเก่าและสร้างใหม่
+ * ฟังก์ชันตรวจสอบชีตที่มีอยู่ (สำหรับเรียกผ่านเมนู)
  */
-function resetSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // รายชื่อชีตที่ต้องการเก็บไว้ (ถ้ามี)
-  const sheetsToKeep = ['Setup']; // เก็บชีต Setup ไว้
-  
-  // ลบชีตที่ไม่ต้องการ
-  ss.getSheets().forEach(sheet => {
-    const sheetName = sheet.getName();
-    if (!sheetsToKeep.includes(sheetName)) {
-      ss.deleteSheet(sheet);
-      Logger.log(`🗑️ ลบชีต: ${sheetName}`);
+function checkExistingSheetsFromMenu() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = ss.getSheets().map(sheet => sheet.getName());
+    
+    const requiredSheets = ['Config', 'Users', 'Menu', 'Orders', 'Logs'];
+    const existing = [];
+    const missing = [];
+    
+    requiredSheets.forEach(sheetName => {
+      if (sheets.includes(sheetName)) {
+        existing.push(sheetName);
+      } else {
+        missing.push(sheetName);
+      }
+    });
+    
+    let message = '';
+    let title = '';
+    
+    if (missing.length === 0) {
+      title = '✅ ระบบพร้อมใช้งาน';
+      message = 'ชีตครบทั้งหมด:\n' + existing.join(', ');
+    } else {
+      title = '⚠️ ชีตไม่ครบ';
+      message = 'ชีตที่มี: ' + (existing.length > 0 ? existing.join(', ') : 'ไม่มี') + '\n\n' +
+                'ชีตที่ขาด: ' + missing.join(', ');
     }
-  });
-  
-  Logger.log('✅ ล้างข้อมูลชีตเก่าเรียบร้อย');
+    
+    ui.alert(title, message, ui.ButtonSet.OK);
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('❌ ข้อผิดพลาด', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
 }
+
+/**
+ * ฟังก์ชันล้างข้อมูลทั้งหมด (สำหรับเรียกผ่านเมนู)
+ */
+function resetAllSheetsFromMenu() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    
+    const response = ui.alert(
+      '⚠️ คำเตือน',
+      'คุณแน่ใจหรือไม่ที่จะลบข้อมูลทั้งหมดและสร้างใหม่? การกระทำนี้ไม่สามารถย้อนกลับได้',
+      ui.ButtonSet.YES_NO
+    );
+    
+    if (response === ui.Button.YES) {
+      initialSetup();
+      ui.alert('✅ ล้างข้อมูลและสร้างใหม่เรียบร้อย');
+    }
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('❌ ข้อผิดพลาด', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * ฟังก์ชันตั้งค่า Script Properties (สำหรับเรียกผ่านเมนู)
+ */
+function setupScriptPropertiesFromMenu() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const spreadsheetId = ss.getId();
+    const props = PropertiesService.getScriptProperties();
+    
+    // ตั้งค่า Spreadsheet ID
+    props.setProperty('DEV_SPREADSHEET_ID', spreadsheetId);
+    props.setProperty('SPREADSHEET_ID', spreadsheetId);
+    props.setProperty('PROD_SPREADSHEET_ID', spreadsheetId); // เผื่อใช้
+    
+    // ตั้งค่า Environment
+    props.setProperty('ENVIRONMENT', 'DEV');
+    
+    // ขอให้ผู้ใช้ใส่ LIFF ID
+    const liffResponse = ui.prompt(
+      '🔐 ตั้งค่า LIFF ID',
+      'กรุณาใส่ LIFF ID ของคุณ (ถ้ายังไม่มี กด Cancel เพื่อข้ามไปก่อน):',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (liffResponse.getSelectedButton() === ui.Button.OK) {
+      const liffId = liffResponse.getResponseText();
+      if (liffId) {
+        props.setProperty('DEV_LIFF_ID', liffId);
+        props.setProperty('LIFF_ID', liffId);
+      }
+    }
+    
+    // ขอให้ผู้ใช้ใส่ Channel Access Token
+    const tokenResponse = ui.prompt(
+      '🔐 ตั้งค่า Channel Access Token',
+      'กรุณาใส่ Channel Access Token ของคุณ (ถ้ายังไม่มี กด Cancel เพื่อข้ามไปก่อน):',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (tokenResponse.getSelectedButton() === ui.Button.OK) {
+      const token = tokenResponse.getResponseText();
+      if (token) {
+        props.setProperty('DEV_CHANNEL_ACCESS_TOKEN', token);
+        props.setProperty('CHANNEL_ACCESS_TOKEN', token);
+      }
+    }
+    
+    // แสดงข้อมูลที่ตั้งค่าแล้ว
+    const allProps = props.getProperties();
+    let propsList = '';
+    for (let key in allProps) {
+      propsList += '\n' + key + ': ' + allProps[key];
+    }
+    
+    ui.alert(
+      '✅ ตั้งค่า Script Properties เรียบร้อย',
+      'ค่าที่ตั้งแล้ว:' + propsList + '\n\nคุณสามารถแก้ไขเพิ่มเติมได้ที่ File > Project Properties > Script Properties',
+      ui.ButtonSet.OK
+    );
+    
+    console.log('✅ ตั้งค่า Script Properties เรียบร้อย');
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('❌ ข้อผิดพลาด', error.toString(), SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+// ========== ฟังก์ชันสร้างชีต (ไม่มี UI) ==========
 
 /**
  * สร้าง Config Sheet
  */
-function createConfigSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createConfigSheet(ss) {
   let sheet = ss.getSheetByName('Config');
   
+  // ลบชีทเก่าถ้ามี
   if (sheet) {
-    sheet.clear();
-  } else {
-    sheet = ss.insertSheet('Config');
+    ss.deleteSheet(sheet);
   }
   
+  // สร้างชีทใหม่
+  sheet = ss.insertSheet('Config');
+  
   // กำหนด Headers
-  const headers = [['key', 'value', 'description', 'lastUpdated']];
-  sheet.getRange(1, 1, 1, 4).setValues(headers);
-  sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#f3f4f6');
+  const headers = [['key', 'value', 'description']];
+  const headerRange = sheet.getRange('A1:C1');
+  headerRange.setValues(headers);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#f3f4f6');
   
   // ข้อมูลเริ่มต้น
-  const initialConfig = [
-    ['shopName', 'ร้านก๋วยเตี๋ยวบ้านครัว', 'ชื่อร้าน', new Date()],
-    ['taxRate', '7', 'อัตราภาษี (%)', new Date()],
-    ['serviceCharge', '0', 'ค่าบริการ (%)', new Date()],
-    ['minOrder', '1', 'จำนวนสั่งขั้นต่ำ', new Date()],
-    ['maxTable', '20', 'จำนวนโต๊ะสูงสุด', new Date()],
-    ['notificationSound', 'true', 'เปิด/ปิดเสียงแจ้งเตือน', new Date()],
-    ['autoKitchenPrint', 'false', 'พิมพ์ออเดอร์ไปครัวอัตโนมัติ', new Date()],
-    ['businessHours', '10:00-22:00', 'เวลาเปิด-ปิด', new Date()],
-    ['contactPhone', '02-123-4567', 'เบอร์โทรติดต่อ', new Date()],
-    ['lineOfficialAccount', '@noodleshop', 'LINE OA', new Date()]
+  const initialData = [
+    ['shopName', 'ร้านก๋วยเตี๋ยวบ้านครัว', 'ชื่อร้าน'],
+    ['taxRate', '7', 'อัตราภาษี (%)'],
+    ['serviceCharge', '0', 'ค่าบริการ (%)'],
+    ['minOrder', '1', 'จำนวนสั่งขั้นต่ำ'],
+    ['maxTable', '20', 'จำนวนโต๊ะสูงสุด'],
+    ['notificationSound', 'true', 'เปิด/ปิดเสียงแจ้งเตือน'],
+    ['businessHours', '10:00-22:00', 'เวลาเปิด-ปิด'],
+    ['contactPhone', '02-123-4567', 'เบอร์โทรติดต่อ'],
+    ['lineOfficialAccount', '@noodleshop', 'LINE OA']
   ];
   
-  sheet.getRange(2, 1, initialConfig.length, 4).setValues(initialConfig);
+  sheet.getRange('A2:C' + (initialData.length + 1)).setValues(initialData);
   
-  // กำหนดคอลัมน์ให้กว้างพอ
-  sheet.setColumnWidths(1, 4, 200);
+  // กำหนดความกว้างคอลัมน์
+  sheet.setColumnWidth(1, 200);
+  sheet.setColumnWidth(2, 200);
+  sheet.setColumnWidth(3, 300);
   
-  Logger.log('✅ สร้าง Config Sheet เรียบร้อย');
+  console.log('✅ สร้าง Config Sheet เรียบร้อย');
 }
 
 /**
  * สร้าง Users Sheet
  */
-function createUsersSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createUsersSheet(ss) {
   let sheet = ss.getSheetByName('Users');
   
   if (sheet) {
-    sheet.clear();
-  } else {
-    sheet = ss.insertSheet('Users');
+    ss.deleteSheet(sheet);
   }
   
-  // กำหนด Headers ตามโครงสร้างใน Code.gs
-  const headers = [['userId', 'name', 'role', 'phone', 'email', 'lastLogin', 'createdAt', 'updatedAt']];
-  sheet.getRange(1, 1, 1, 8).setValues(headers);
-  sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#f3f4f6');
+  sheet = ss.insertSheet('Users');
   
-  // สร้าง Data Validation สำหรับ role
-  const roleRange = sheet.getRange('C2:C');
-  const roleValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Admin', 'Staff', 'Customer'], true)
-    .setAllowInvalid(false)
-    .build();
-  roleRange.setDataValidation(roleValidation);
+  // Headers ตามโครงสร้างใน Code.gs
+  const headers = [['userId', 'name', 'role', 'timestamp']];
+  const headerRange = sheet.getRange('A1:D1');
+  headerRange.setValues(headers);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#f3f4f6');
   
   // กำหนดความกว้างคอลัมน์
   sheet.setColumnWidth(1, 250); // userId
   sheet.setColumnWidth(2, 200); // name
   sheet.setColumnWidth(3, 100); // role
-  sheet.setColumnWidth(4, 120); // phone
-  sheet.setColumnWidth(5, 200); // email
-  sheet.setColumnWidth(6, 180); // lastLogin
-  sheet.setColumnWidth(7, 180); // createdAt
-  sheet.setColumnWidth(8, 180); // updatedAt
+  sheet.setColumnWidth(4, 180); // timestamp
   
-  // เพิ่มข้อมูล Admin เริ่มต้น (ตัวอย่าง)
-  const initialUsers = [
-    ['U' + generateRandomId(20), 'ผู้ดูแลระบบ', 'Admin', '081-234-5678', 'admin@noodleshop.com', new Date(), new Date(), new Date()],
-    ['U' + generateRandomId(20), 'พนักงานครัว', 'Staff', '082-345-6789', 'staff@noodleshop.com', new Date(), new Date(), new Date()]
+  // เพิ่มข้อมูลตัวอย่าง
+  const now = new Date();
+  const sampleData = [
+    ['U' + generateId(10), 'ผู้ดูแลระบบ', 'Admin', now],
+    ['U' + generateId(10), 'พนักงานครัว', 'Staff', now],
+    ['U' + generateId(10), 'ลูกค้าทั่วไป', 'Customer', now]
   ];
   
-  sheet.getRange(2, 1, initialUsers.length, 8).setValues(initialUsers);
+  sheet.getRange('A2:D' + (sampleData.length + 1)).setValues(sampleData);
   
-  // เพิ่มหมายเหตุ
-  sheet.getRange('A1:H1').setNote('⚠️ userId ต้องตรงกับ LINE User ID เท่านั้น');
-  
-  Logger.log('✅ สร้าง Users Sheet เรียบร้อย');
+  console.log('✅ สร้าง Users Sheet เรียบร้อย');
 }
 
 /**
  * สร้าง Menu Sheet
  */
-function createMenuSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createMenuSheet(ss) {
   let sheet = ss.getSheetByName('Menu');
   
   if (sheet) {
-    sheet.clear();
-  } else {
-    sheet = ss.insertSheet('Menu');
+    ss.deleteSheet(sheet);
   }
   
-  // กำหนด Headers ตามโครงสร้างใน Code.gs
-  const headers = [['id', 'name', 'category', 'price', 'imageUrl', 'status', 'description', 'options', 'createdAt', 'updatedAt']];
-  sheet.getRange(1, 1, 1, 10).setValues(headers);
-  sheet.getRange(1, 1, 1, 10).setFontWeight('bold').setBackground('#f3f4f6');
+  sheet = ss.insertSheet('Menu');
   
-  // Data Validation สำหรับ category
-  const categoryRange = sheet.getRange('C2:C');
-  const categoryValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['น้ำใส', 'ต้มยำ', 'แห้ง', 'เย็นตาโฟ', 'เกาเหลา', 'พิเศษ'], true)
-    .setAllowInvalid(false)
-    .build();
-  categoryRange.setDataValidation(categoryValidation);
-  
-  // Data Validation สำหรับ status
-  const statusRange = sheet.getRange('F2:F');
-  const statusValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['มีสินค้า', 'หมด', 'ซ่อน', 'deleted'], true)
-    .setAllowInvalid(false)
-    .build();
-  statusRange.setDataValidation(statusValidation);
+  // Headers ตามโครงสร้างใน Code.gs
+  const headers = [['id', 'name', 'category', 'price', 'imageUrl', 'status']];
+  const headerRange = sheet.getRange('A1:F1');
+  headerRange.setValues(headers);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#f3f4f6');
   
   // กำหนดความกว้างคอลัมน์
   sheet.setColumnWidth(1, 100);  // id
@@ -216,55 +318,39 @@ function createMenuSheet() {
   sheet.setColumnWidth(4, 80);   // price
   sheet.setColumnWidth(5, 250);  // imageUrl
   sheet.setColumnWidth(6, 100);  // status
-  sheet.setColumnWidth(7, 300);  // description
-  sheet.setColumnWidth(8, 200);  // options (JSON)
-  sheet.setColumnWidth(9, 180);  // createdAt
-  sheet.setColumnWidth(10, 180); // updatedAt
   
-  // สร้างตัวกรอง
-  sheet.getRange('A1:J1').createFilter();
+  // เพิ่มข้อมูลตัวอย่าง
+  const sampleMenu = [
+    ['M001', 'ก๋วยเตี๋ยวน้ำใสหมู', 'น้ำใส', 50, 'https://via.placeholder.com/300', 'มี'],
+    ['M002', 'ก๋วยเตี๋ยวต้มยำ', 'ต้มยำ', 60, 'https://via.placeholder.com/300', 'มี'],
+    ['M003', 'ก๋วยเตี๋ยวแห้ง', 'แห้ง', 55, 'https://via.placeholder.com/300', 'มี'],
+    ['M004', 'เย็นตาโฟ', 'เย็นตาโฟ', 65, 'https://via.placeholder.com/300', 'มี'],
+    ['M005', 'เกาเหลา', 'เกาเหลา', 50, 'https://via.placeholder.com/300', 'หมด']
+  ];
   
-  Logger.log('✅ สร้าง Menu Sheet เรียบร้อย');
+  sheet.getRange('A2:F' + (sampleMenu.length + 1)).setValues(sampleMenu);
+  
+  console.log('✅ สร้าง Menu Sheet เรียบร้อย');
 }
 
 /**
  * สร้าง Orders Sheet
  */
-function createOrdersSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createOrdersSheet(ss) {
   let sheet = ss.getSheetByName('Orders');
   
   if (sheet) {
-    sheet.clear();
-  } else {
-    sheet = ss.insertSheet('Orders');
+    ss.deleteSheet(sheet);
   }
   
-  // กำหนด Headers ตามโครงสร้างใน Code.gs
-  const headers = [
-    ['orderId', 'userId', 'tableNo', 'items', 'totalPrice', 'status', 
-     'paymentMethod', 'paymentStatus', 'specialNotes', 'timestamp', 
-     'completedAt', 'createdBy', 'updatedBy']
-  ];
+  sheet = ss.insertSheet('Orders');
   
-  sheet.getRange(1, 1, 1, 13).setValues(headers);
-  sheet.getRange(1, 1, 1, 13).setFontWeight('bold').setBackground('#f3f4f6');
-  
-  // Data Validation สำหรับ status
-  const statusRange = sheet.getRange('F2:F');
-  const statusValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Pending', 'Cooking', 'Served', 'Paid', 'Cancelled'], true)
-    .setAllowInvalid(false)
-    .build();
-  statusRange.setDataValidation(statusValidation);
-  
-  // Data Validation สำหรับ paymentStatus
-  const paymentStatusRange = sheet.getRange('H2:H');
-  const paymentStatusValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Pending', 'Paid', 'Refunded'], true)
-    .setAllowInvalid(false)
-    .build();
-  paymentStatusRange.setDataValidation(paymentStatusValidation);
+  // Headers ตามโครงสร้างใน Code.gs
+  const headers = [['orderId', 'userId', 'tableNo', 'items', 'totalPrice', 'status', 'timestamp']];
+  const headerRange = sheet.getRange('A1:G1');
+  headerRange.setValues(headers);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#f3f4f6');
   
   // กำหนดความกว้างคอลัมน์
   sheet.setColumnWidth(1, 120); // orderId
@@ -273,56 +359,45 @@ function createOrdersSheet() {
   sheet.setColumnWidth(4, 300); // items (JSON)
   sheet.setColumnWidth(5, 100); // totalPrice
   sheet.setColumnWidth(6, 100); // status
-  sheet.setColumnWidth(7, 120); // paymentMethod
-  sheet.setColumnWidth(8, 100); // paymentStatus
-  sheet.setColumnWidth(9, 200); // specialNotes
-  sheet.setColumnWidth(10, 180); // timestamp
-  sheet.setColumnWidth(11, 180); // completedAt
-  sheet.setColumnWidth(12, 250); // createdBy
-  sheet.setColumnWidth(13, 250); // updatedBy
+  sheet.setColumnWidth(7, 180); // timestamp
   
-  // แช่แข็งแถวหัวตาราง
-  sheet.setFrozenRows(1);
+  // เพิ่มข้อมูลตัวอย่าง (1 ออเดอร์)
+  const now = new Date();
+  const sampleOrder = [
+    [
+      'ORD-' + generateId(6), 
+      'U' + generateId(10), 
+      '5', 
+      '[{"name":"ก๋วยเตี๋ยวน้ำใส","quantity":2,"price":50}]', 
+      100, 
+      'Pending', 
+      now
+    ]
+  ];
   
-  // สร้างตัวกรอง
-  sheet.getRange('A1:M1').createFilter();
+  sheet.getRange('A2:G' + (sampleOrder.length + 1)).setValues(sampleOrder);
   
-  Logger.log('✅ สร้าง Orders Sheet เรียบร้อย');
+  console.log('✅ สร้าง Orders Sheet เรียบร้อย');
 }
 
 /**
  * สร้าง Logs Sheet
  */
-function createLogsSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createLogsSheet(ss) {
   let sheet = ss.getSheetByName('Logs');
   
   if (sheet) {
-    sheet.clear();
-  } else {
-    sheet = ss.insertSheet('Logs');
+    ss.deleteSheet(sheet);
   }
   
-  // กำหนด Headers ตามโครงสร้างใน Code.gs
-  const headers = [['timestamp', 'action', 'userId', 'details', 'environment', 'level', 'ipAddress', 'userAgent']];
-  sheet.getRange(1, 1, 1, 8).setValues(headers);
-  sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#f3f4f6');
+  sheet = ss.insertSheet('Logs');
   
-  // Data Validation สำหรับ level
-  const levelRange = sheet.getRange('F2:F');
-  const levelValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['INFO', 'WARNING', 'ERROR', 'DEBUG'], true)
-    .setAllowInvalid(false)
-    .build();
-  levelRange.setDataValidation(levelValidation);
-  
-  // Data Validation สำหรับ environment
-  const envRange = sheet.getRange('E2:E');
-  const envValidation = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['DEV', 'PROD'], true)
-    .setAllowInvalid(false)
-    .build();
-  envRange.setDataValidation(envValidation);
+  // Headers ตามโครงสร้างใน Code.gs
+  const headers = [['timestamp', 'action', 'userId', 'details', 'environment', 'level']];
+  const headerRange = sheet.getRange('A1:F1');
+  headerRange.setValues(headers);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#f3f4f6');
   
   // กำหนดความกว้างคอลัมน์
   sheet.setColumnWidth(1, 180); // timestamp
@@ -331,141 +406,43 @@ function createLogsSheet() {
   sheet.setColumnWidth(4, 300); // details
   sheet.setColumnWidth(5, 80);  // environment
   sheet.setColumnWidth(6, 80);  // level
-  sheet.setColumnWidth(7, 150); // ipAddress
-  sheet.setColumnWidth(8, 200); // userAgent
   
-  Logger.log('✅ สร้าง Logs Sheet เรียบร้อย');
+  // เพิ่มข้อมูลตัวอย่าง
+  const now = new Date();
+  const sampleLogs = [
+    [now, 'initialSetup', 'system', 'สร้างระบบครั้งแรก', 'DEV', 'INFO'],
+    [now, 'createOrder', 'U' + generateId(10), 'ออเดอร์ใหม่ ORD-001', 'DEV', 'INFO']
+  ];
+  
+  sheet.getRange('A2:F' + (sampleLogs.length + 1)).setValues(sampleLogs);
+  
+  console.log('✅ สร้าง Logs Sheet เรียบร้อย');
 }
 
 /**
- * เพิ่มข้อมูลตัวอย่างสำหรับทดสอบ
+ * ตั้งค่าข้อมูลเริ่มต้นเพิ่มเติม
  */
-function addSampleData() {
-  try {
-    // เพิ่มเมนูตัวอย่าง
-    const menuSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Menu');
-    const sampleMenu = [
-      ['MENU001', 'ก๋วยเตี๋ยวน้ำใสหมู', 'น้ำใส', 50, 'https://via.placeholder.com/300', 'มีสินค้า', 'น้ำซุปหมูใส เส้นเล็ก หมูสับ ลูกชิ้น', '{"noodle":["เส้นเล็ก","เส้นใหญ่","หมี่"]}', new Date(), new Date()],
-      ['MENU002', 'ก๋วยเตี๋ยวน้ำตก', 'ต้มยำ', 60, 'https://via.placeholder.com/300', 'มีสินค้า', 'น้ำตกหมู เครื่องแน่น', '{"spicy":["ไม่เผ็ด","น้อย","กลาง","มาก"]}', new Date(), new Date()],
-      ['MENU003', 'ก๋วยเตี๋ยวแห้ง', 'แห้ง', 55, 'https://via.placeholder.com/300', 'มีสินค้า', 'แห้งหมู กระเทียมเจียว', '{"pork":["หมูกรอบ","หมูเด้ง","หมูสับ"]}', new Date(), new Date()],
-      ['MENU004', 'เย็นตาโฟ', 'เย็นตาโฟ', 65, 'https://via.placeholder.com/300', 'มีสินค้า', 'เย็นตาโฟหมูกรอบ', '{"tofu":["เย็นตาโฟ","เลือดหมู"]}', new Date(), new Date()],
-      ['MENU005', 'เกาเหลาหมู', 'เกาเหลา', 50, 'https://via.placeholder.com/300', 'มีสินค้า', 'เกาเหลา น้ำใส', '{"meat":["หมู","เนื้อ"]}', new Date(), new Date()]
-    ];
-    
-    menuSheet.getRange(2, 1, sampleMenu.length, 10).setValues(sampleMenu);
-    Logger.log('✅ เพิ่มเมนูตัวอย่างเรียบร้อย');
-    
-    // เพิ่มผู้ใช้ตัวอย่าง
-    const userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
-    const sampleUsers = [
-      ['U' + generateRandomId(20), 'สมชาย ใจดี', 'Admin', '089-123-4567', 'somchai@example.com', new Date(), new Date(), new Date()],
-      ['U' + generateRandomId(20), 'วิชัย ทำอาหาร', 'Staff', '089-234-5678', 'wichai@example.com', new Date(), new Date(), new Date()],
-      ['U' + generateRandomId(20), 'อรอนงค์ ลูกค้า', 'Customer', '089-345-6789', 'orn@example.com', new Date(), new Date(), new Date()]
-    ];
-    
-    userSheet.getRange(3, 1, sampleUsers.length, 8).setValues(sampleUsers);
-    Logger.log('✅ เพิ่มผู้ใช้ตัวอย่างเรียบร้อย');
-    
-    SpreadsheetApp.getUi().alert('✅ เพิ่มข้อมูลตัวอย่างเรียบร้อย');
-    
-  } catch (error) {
-    Logger.log('❌ ไม่สามารถเพิ่มข้อมูลตัวอย่าง: ' + error.toString());
-  }
+function setupInitialData(ss) {
+  // อัปเดต Config เพิ่มเติม
+  const configSheet = ss.getSheetByName('Config');
+  
+  // เพิ่ม spreadsheet ID ใน config
+  const lastRow = configSheet.getLastRow();
+  configSheet.getRange('A' + (lastRow + 1) + ':C' + (lastRow + 1))
+    .setValues([['spreadsheetId', ss.getId(), 'Spreadsheet ID']]);
+  
+  // เพิ่มวันที่ติดตั้ง
+  configSheet.getRange('A' + (lastRow + 2) + ':C' + (lastRow + 2))
+    .setValues([['installedDate', new Date().toISOString(), 'วันที่ติดตั้งระบบ']]);
+  
+  console.log('✅ ตั้งค่าข้อมูลเริ่มต้นเรียบร้อย');
 }
 
 /**
- * ตั้งค่า ScriptProperties
+ * ฟังก์ชันสร้าง ID แบบง่าย
  */
-function setupScriptProperties() {
-  const props = PropertiesService.getScriptProperties();
-  const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
-  
-  // ตรวจสอบว่ามีค่าอยู่แล้วหรือไม่
-  const existingDevId = props.getProperty('DEV_SPREADSHEET_ID');
-  const existingProdId = props.getProperty('PROD_SPREADSHEET_ID');
-  
-  const ui = SpreadsheetApp.getUi();
-  
-  if (!existingDevId && !existingProdId) {
-    // ยังไม่มีการตั้งค่า ให้สอบถามผู้ใช้
-    const response = ui.prompt(
-      '🔐 ตั้งค่า Spreadsheet ID',
-      'กรุณาระบุ Environment นี้ (DEV หรือ PROD):',
-      ui.ButtonSet.OK_CANCEL
-    );
-    
-    if (response.getSelectedButton() === ui.Button.OK) {
-      const env = response.getResponseText().toUpperCase();
-      if (env === 'DEV' || env === 'PROD') {
-        props.setProperty(`${env}_SPREADSHEET_ID`, spreadsheetId);
-        props.setProperty('ENVIRONMENT', env);
-        Logger.log(`✅ ตั้งค่า ${env}_SPREADSHEET_ID เรียบร้อย`);
-      }
-    }
-  }
-  
-  // ตั้งค่า Default Config
-  props.setProperty('DEFAULT_LIFF_ID', 'YOUR_LIFF_ID_HERE');
-  props.setProperty('DEFAULT_CHANNEL_TOKEN', 'YOUR_CHANNEL_TOKEN_HERE');
-  
-  Logger.log('✅ ตั้งค่า Script Properties เรียบร้อย');
-}
-
-/**
- * สร้างเมนูแบบกำหนดเองใน Google Sheets
- */
-function createCustomMenu() {
-  const ui = SpreadsheetApp.getUi();
-  
-  ui.createMenu('🍜 ร้านก๋วยเตี๋ยว')
-    .addItem('🔄 ตั้งค่าระบบใหม่', 'initialSetup')
-    .addItem('📊 ดู Dashboard', 'showDashboard')
-    .addItem('📝 จัดการเมนู', 'openMenuManager')
-    .addSeparator()
-    .addItem('📈 รายงานยอดขาย', 'generateSalesReport')
-    .addItem('👥 จัดการผู้ใช้', 'openUserManager')
-    .addSeparator()
-    .addItem('⚙️ ตั้งค่า Script Properties', 'openScriptProperties')
-    .addItem('❓ วิธีใช้', 'showHelp')
-    .addToUi();
-  
-  Logger.log('✅ สร้าง Custom Menu เรียบร้อย');
-}
-
-/**
- * แสดงสรุปผลการตั้งค่า
- */
-function showSetupSummary() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets().map(s => s.getName()).join(', ');
-  
-  const summary = `
-✅ **การตั้งค่าระบบเสร็จสมบูรณ์**
-
-📊 **ชีตที่สร้าง:**
-${sheets}
-
-🔐 **Script Properties:**
-- ตรวจสอบ/ตั้งค่าใน File > Project Properties > Script Properties
-
-📝 **ขั้นตอนถัดไป:**
-1. ตั้งค่า LIFF ID ใน Script Properties
-2. ตั้งค่า Channel Access Token
-3. ทดสอบระบบด้วยการ Deploy เป็น Web App
-
-⚠️ **หมายเหตุ:**
-- อย่าลืมตั้งค่า Environment (DEV/PROD)
-- ตรวจสอบข้อมูลในชีต Config
-`;
-
-  SpreadsheetApp.getUi().alert('✅ ตั้งค่าระบบเสร็จสมบูรณ์', summary, ui.ButtonSet.OK);
-}
-
-/**
- * Utility: สร้าง random ID
- */
-function generateRandomId(length) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+function generateId(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = '';
   for (let i = 0; i < length; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -474,117 +451,24 @@ function generateRandomId(length) {
 }
 
 /**
- * ฟังก์ชันสำหรับเรียกจากเมนู
- */
-function showDashboard() {
-  SpreadsheetApp.getUi().alert('📊 Dashboard', 'กำลังพัฒนา...', ui.ButtonSet.OK);
-}
-
-function openMenuManager() {
-  SpreadsheetApp.getUi().alert('📝 จัดการเมนู', 'กำลังพัฒนา...', ui.ButtonSet.OK);
-}
-
-function generateSalesReport() {
-  SpreadsheetApp.getUi().alert('📈 รายงานยอดขาย', 'กำลังพัฒนา...', ui.ButtonSet.OK);
-}
-
-function openUserManager() {
-  SpreadsheetApp.getUi().alert('👥 จัดการผู้ใช้', 'กำลังพัฒนา...', ui.ButtonSet.OK);
-}
-
-function openScriptProperties() {
-  const html = HtmlService.createHtmlOutput(`
-    <html>
-      <body style="padding: 20px; font-family: sans-serif;">
-        <h2>🔐 ตั้งค่า Script Properties</h2>
-        <p>ไปที่: <b>File > Project Properties > Script Properties</b></p>
-        <p><b>Required Properties:</b></p>
-        <ul>
-          <li>DEV_SPREADSHEET_ID / PROD_SPREADSHEET_ID</li>
-          <li>DEV_LIFF_ID / PROD_LIFF_ID</li>
-          <li>DEV_CHANNEL_ACCESS_TOKEN / PROD_CHANNEL_ACCESS_TOKEN</li>
-        </ul>
-        <button onclick="google.script.host.close()">ปิด</button>
-      </body>
-    </html>
-  `).setWidth(400).setHeight(300);
-  
-  SpreadsheetApp.getUi().showModalDialog(html, 'ตั้งค่า Script Properties');
-}
-
-function showHelp() {
-  SpreadsheetApp.getUi().alert(
-    '❓ วิธีใช้ระบบ',
-    '1. เรียก initialSetup() เพื่อสร้างโครงสร้าง\n' +
-    '2. ตั้งค่า Script Properties\n' +
-    '3. เพิ่มข้อมูลเมนูใน Menu Sheet\n' +
-    '4. Deploy เป็น Web App\n' +
-    '5. ทดสอบกับ LINE LIFF',
-    ui.ButtonSet.OK
-  );
-}
-
-/**
- * ฟังก์ชันตรวจสอบความถูกต้องของโครงสร้างชีต
- */
-function validateSheetStructure() {
-  const requiredSheets = ['Config', 'Users', 'Menu', 'Orders', 'Logs'];
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const existingSheets = ss.getSheets().map(s => s.getName());
-  
-  const missingSheets = requiredSheets.filter(s => !existingSheets.includes(s));
-  
-  if (missingSheets.length > 0) {
-    SpreadsheetApp.getUi().alert(
-      '⚠️ ชีตไม่ครบ',
-      'ชีตที่ขาด: ' + missingSheets.join(', '),
-      ui.ButtonSet.OK
-    );
-    return false;
-  }
-  
-  SpreadsheetApp.getUi().alert('✅ โครงสร้างชีตถูกต้อง');
-  return true;
-}
-
-/**
- * ฟังก์ชันสำรองข้อมูล
- */
-function backupData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const date = new Date().toISOString().slice(0,10);
-  const backupName = `Backup_${date}`;
-  
-  // สร้างสำเนา
-  const backupFile = DriveApp.getFileById(ss.getId()).makeCopy(backupName);
-  
-  SpreadsheetApp.getUi().alert(
-    '✅ สำรองข้อมูลเรียบร้อย',
-    'ไฟล์สำรอง: ' + backupName + '\nID: ' + backupFile.getId(),
-    ui.ButtonSet.OK
-  );
-}
-
-/**
- * เรียกใช้เมื่อเปิด Spreadsheet ครั้งแรก
+ * ฟังก์ชันสร้างเมนูแบบกำหนดเอง (เรียกอัตโนมัติเมื่อเปิดไฟล์)
  */
 function onOpen() {
-  createCustomMenu();
-  validateSheetStructure();
+  const ui = SpreadsheetApp.getUi();
+  
+  ui.createMenu('🍜 ร้านก๋วยเตี๋ยว')
+    .addItem('1️⃣ ตั้งค่าระบบ (มี UI ยืนยัน)', 'setupFromMenu')
+    .addItem('2️⃣ ตรวจสอบชีต', 'checkExistingSheetsFromMenu')
+    .addItem('3️⃣ ตั้งค่า Script Properties', 'setupScriptPropertiesFromMenu')
+    .addSeparator()
+    .addItem('⚠️ ล้างข้อมูลทั้งหมด', 'resetAllSheetsFromMenu')
+    .addToUi();
 }
 
 /**
- * เรียกใช้เมื่อมีการแก้ไข
+ * ฟังก์ชันสำหรับทดสอบว่าทำงานถูกต้อง
  */
-function onEdit(e) {
-  // บันทึกการแก้ไขลง Logs ถ้าจำเป็น
-  const range = e.range;
-  const sheet = range.getSheet();
-  const value = e.value;
-  const oldValue = e.oldValue;
-  
-  // เฉพาะชีตสำคัญ
-  if (['Menu', 'Orders', 'Users'].includes(sheet.getName())) {
-    Logger.log(`📝 แก้ไข: ${sheet.getName()} - Row: ${range.getRow()}, Col: ${range.getColumn()}`);
-  }
+function test() {
+  console.log('✅ ระบบพร้อมทำงาน');
+  console.log('📊 Spreadsheet ID: ' + SpreadsheetApp.getActiveSpreadsheet().getId());
 }
