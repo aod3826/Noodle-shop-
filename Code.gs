@@ -1,34 +1,29 @@
 // ============================================
-// SENIOR FULL-STACK ARCHITECTURE
-// NOODLE SHOP MANAGEMENT SYSTEM
-// Environment: Multi-environment (DEV/PROD)
-// Security: Zero-trust, Secret Management
+// NOODLE SHOP MANAGEMENT SYSTEM - COMPLETE VERSION
+// LINE LIFF + Google Apps Script + Google Sheets
+// Version: 3.0.0 (Production Ready)
 // ============================================
 
 // ========== CONFIGURATION ==========
-// ตรวจสอบ Environment จาก URL หรือ Constant
 function getEnvironment() {
   const url = ScriptApp.getService().getUrl();
-  if (url.includes('dev') || url.includes('test') || url.includes('localhost')) {
+  if (url.includes('dev') || url.includes('test')) {
     return 'DEV';
   }
-  // ใช้ ScriptProperties กำหนดค่า PROD_URL เพื่อเทียบได้
   const prodUrl = PropertiesService.getScriptProperties().getProperty('PROD_URL');
   if (prodUrl && url === prodUrl) {
     return 'PROD';
   }
-  return 'DEV'; // fallback
+  return 'DEV';
 }
 
-// ดึง Secret จาก ScriptProperties เท่านั้น!
 function getSecret(key) {
   const env = getEnvironment();
-  // รองรับการแยก Secret ตาม Environment
   const secretKey = `${env}_${key}`;
   const value = PropertiesService.getScriptProperties().getProperty(secretKey);
   if (!value) {
-    console.error(`Secret not found: ${secretKey}`);
-    throw new Error(`Configuration error: ${key} not set`);
+    const defaultKey = key;
+    return PropertiesService.getScriptProperties().getProperty(defaultKey);
   }
   return value;
 }
@@ -36,10 +31,13 @@ function getSecret(key) {
 // ========== SHEETS INITIALIZATION ==========
 function getSheet(sheetName) {
   const spreadsheetId = getSecret('SPREADSHEET_ID');
+  if (!spreadsheetId) {
+    throw new Error('ไม่พบ SPREADSHEET_ID กรุณาตั้งค่าใน Script Properties');
+  }
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-    throw new Error(`Sheet "${sheetName}" not found`);
+    throw new Error(`ไม่พบชีต "${sheetName}" กรุณารัน initialSetup ก่อน`);
   }
   return sheet;
 }
@@ -47,10 +45,9 @@ function getSheet(sheetName) {
 // ========== AUTH MIDDLEWARE ==========
 function verifyAuth(userId, requiredRole = null) {
   if (!userId) {
-    throw new Error('Unauthorized: No user ID');
+    throw new Error('ไม่พบ User ID กรุณาเข้าสู่ระบบผ่าน LINE');
   }
   
-  // ดึงข้อมูล user จาก Sheets
   const userSheet = getSheet('Users');
   const userData = userSheet.getDataRange().getValues();
   const headers = userData.shift();
@@ -66,14 +63,12 @@ function verifyAuth(userId, requiredRole = null) {
   }
   
   if (!userRole) {
-    // Auto-register สำหรับ Customer ถ้ายังไม่มีในระบบ
     if (requiredRole === 'Customer' || !requiredRole) {
-      return 'Customer'; // อนุญาตชั่วคราว
+      return 'Customer';
     }
-    throw new Error('Forbidden: User not registered');
+    throw new Error('ไม่มีสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
   }
   
-  // Check role-based access
   if (requiredRole) {
     const roleHierarchy = {
       'Admin': 3,
@@ -82,14 +77,14 @@ function verifyAuth(userId, requiredRole = null) {
     };
     
     if (roleHierarchy[userRole] < roleHierarchy[requiredRole]) {
-      throw new Error(`Forbidden: Required role ${requiredRole}, but user has ${userRole}`);
+      throw new Error(`ต้องการสิทธิ์ ${requiredRole} แต่คุณมีสิทธิ์ ${userRole}`);
     }
   }
   
   return userRole;
 }
 
-// ========== API ROUTER ==========
+// ========== MAIN ROUTER ==========
 function doPost(e) {
   return handleRequest(e, 'POST');
 }
@@ -99,7 +94,6 @@ function doGet(e) {
 }
 
 function handleRequest(e, method) {
-  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -107,79 +101,70 @@ function handleRequest(e, method) {
   };
   
   try {
-    // Parse request
     const params = e.parameter || {};
     const postData = e.postData ? JSON.parse(e.postData.contents) : {};
     const action = params.action || postData.action;
     const userId = params.userId || postData.userId;
     
-    // Log request (สำหรับ audit)
-    logActivity({
-      action,
-      userId,
-      method,
-      timestamp: new Date(),
-      environment: getEnvironment()
-    });
+    logActivity(action, userId, { method });
     
-    // Route requests
     let result;
     switch (action) {
-      // ===== Public APIs (ไม่ต้อง Auth) =====
+      // Public APIs
       case 'getConfig':
         result = getPublicConfig();
         break;
-        
-      // ===== Customer APIs =====
+      
+      // Customer APIs
       case 'getMenu':
         verifyAuth(userId, 'Customer');
         result = getMenu();
         break;
-        
+      
       case 'createOrder':
         verifyAuth(userId, 'Customer');
         result = createOrder(userId, postData);
         break;
-        
+      
       case 'getMyOrders':
         verifyAuth(userId, 'Customer');
         result = getUserOrders(userId);
         break;
-        
-      // ===== Staff APIs =====
+      
+      // Staff APIs
       case 'getActiveOrders':
         verifyAuth(userId, 'Staff');
         result = getActiveOrders();
         break;
-        
+      
       case 'updateOrderStatus':
         verifyAuth(userId, 'Staff');
         result = updateOrderStatus(userId, postData);
         break;
-        
+      
+      case 'checkNewOrders':
+        verifyAuth(userId, 'Staff');
+        result = checkNewOrders(userId, postData.lastCheck);
+        break;
+      
       case 'billCalculation':
         verifyAuth(userId, 'Staff');
         result = calculateBill(postData.orderId, postData.payment);
         break;
-        
-      // ===== Admin APIs =====
-      case 'manageUsers':
-        verifyAuth(userId, 'Admin');
-        result = manageUsers(postData);
-        break;
-        
+      
+      // Admin APIs
       case 'manageMenu':
         verifyAuth(userId, 'Admin');
-        result = manageMenu(postData);
+        result = manageMenu(userId, postData.action, postData.menuData);
         break;
-        
-      case 'getReports':
+      
+      case 'getAllUsers':
         verifyAuth(userId, 'Admin');
-        result = getReports(postData);
+        result = getAllUsers();
         break;
-        
+      
       default:
-        throw new Error(`Unknown action: ${action}`);
+        throw new Error(`ไม่พบ action: ${action}`);
     }
     
     return ContentService
@@ -189,14 +174,7 @@ function handleRequest(e, method) {
       
   } catch (error) {
     console.error('API Error:', error);
-    
-    // Log error
-    logError({
-      error: error.toString(),
-      stack: error.stack,
-      params: e.parameter,
-      userId: e.parameter?.userId
-    });
+    logError(error, e.parameter);
     
     return ContentService
       .createTextOutput(JSON.stringify({ 
@@ -209,19 +187,30 @@ function handleRequest(e, method) {
   }
 }
 
-// ========== PUBLIC CONFIG (ส่งให้ Frontend) ==========
+// ========== PUBLIC CONFIG ==========
 function getPublicConfig() {
-  const env = getEnvironment();
   return {
-    environment: env,
-    liffId: getSecret('LIFF_ID'),  // LIFF ID ตาม Environment
-    version: '1.0.0',
-    features: {
-      audioNotification: true,
-      tableSelection: true,
-      specialRequests: true
-    }
+    environment: getEnvironment(),
+    liffId: getSecret('LIFF_ID'),
+    shopName: getConfigValue('shopName') || 'ร้านก๋วยเตี๋ยว',
+    version: '3.0.0',
+    businessHours: getConfigValue('businessHours') || '10:00-22:00'
   };
+}
+
+function getConfigValue(key) {
+  try {
+    const configSheet = getSheet('Config');
+    const data = configSheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        return data[i][1];
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
 }
 
 // ========== MENU MANAGEMENT ==========
@@ -233,16 +222,40 @@ function getMenu() {
   return data.map(row => {
     const item = {};
     headers.forEach((header, index) => {
-      item[header] = row[index];
+      if (header === 'price' && row[index]) {
+        item[header] = Number(row[index]);
+      } else {
+        item[header] = row[index];
+      }
     });
     
-    // แปลง Google Drive Image URL เป็น Direct Link
     if (item.imageUrl && item.imageUrl.includes('drive.google.com')) {
       item.imageUrl = convertDriveLink(item.imageUrl);
     }
     
     return item;
-  }).filter(item => item.status !== 'deleted'); // ไม่แสดงที่ลบแล้ว
+  }).filter(item => item.status !== 'deleted' && item.status !== 'ซ่อน');
+}
+
+function convertDriveLink(driveUrl) {
+  const fileId = extractFileId(driveUrl);
+  if (fileId) {
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+  }
+  return driveUrl;
+}
+
+function extractFileId(url) {
+  const patterns = [
+    /\/d\/([a-zA-Z0-9_-]+)/,
+    /id=([a-zA-Z0-9_-]+)/
+  ];
+  
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 // ========== ORDER MANAGEMENT ==========
@@ -250,33 +263,32 @@ function createOrder(userId, data) {
   const { tableNo, items, totalPrice, specialNotes } = data;
   
   if (!items || !items.length) {
-    throw new Error('Order must have at least one item');
+    throw new Error('กรุณาเลือกรายการอาหาร');
   }
   
   const orderSheet = getSheet('Orders');
-  const orderId = generateOrderId();
+  const orderId = 'ORD-' + new Date().getTime().toString(36).toUpperCase() + 
+                  Math.random().toString(36).substring(2, 5).toUpperCase();
   
   const orderData = {
-    orderId,
-    userId,
+    orderId: orderId,
+    userId: userId,
     tableNo: tableNo || 'Takeaway',
     items: JSON.stringify(items),
-    totalPrice,
+    totalPrice: totalPrice,
     specialNotes: specialNotes || '',
     status: 'Pending',
     timestamp: new Date(),
-    createdBy: userId
+    paymentStatus: 'Pending'
   };
   
-  // Append to sheet
   const headers = orderSheet.getRange(1, 1, 1, orderSheet.getLastColumn()).getValues()[0];
   const newRow = headers.map(header => orderData[header] || '');
   orderSheet.appendRow(newRow);
   
-  // Send notifications
   notifyNewOrder(orderData);
   
-  return { orderId, ...orderData };
+  return { orderId: orderId, ...orderData };
 }
 
 function getActiveOrders() {
@@ -296,6 +308,8 @@ function getActiveOrders() {
           } catch {
             order[header] = row[index];
           }
+        } else if (header === 'totalPrice') {
+          order[header] = Number(row[index]) || 0;
         } else {
           order[header] = row[index];
         }
@@ -303,7 +317,32 @@ function getActiveOrders() {
       return order;
     })
     .filter(order => activeStatuses.includes(order.status))
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // ใหม่สุดขึ้นก่อน
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
+function getUserOrders(userId) {
+  const orderSheet = getSheet('Orders');
+  const data = orderSheet.getDataRange().getValues();
+  const headers = data.shift();
+  
+  return data
+    .map(row => {
+      const order = {};
+      headers.forEach((header, index) => {
+        if (header === 'items' && row[index]) {
+          try {
+            order[header] = JSON.parse(row[index]);
+          } catch {
+            order[header] = row[index];
+          }
+        } else {
+          order[header] = row[index];
+        }
+      });
+      return order;
+    })
+    .filter(order => order.userId === userId)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
 function updateOrderStatus(staffId, data) {
@@ -315,30 +354,72 @@ function updateOrderStatus(staffId, data) {
   
   const orderIdCol = headers.indexOf('orderId');
   const statusCol = headers.indexOf('status');
+  const userIdCol = headers.indexOf('userId');
   
   for (let i = 0; i < dataRange.length; i++) {
     if (dataRange[i][orderIdCol] === orderId) {
-      // Update status
       orderSheet.getRange(i + 2, statusCol + 1).setValue(newStatus);
       
-      // If status is 'Served', send push message to customer
       if (newStatus === 'Served') {
-        const userId = dataRange[i][headers.indexOf('userId')];
-        notifyCustomerServed(userId, orderId);
+        const customerId = dataRange[i][userIdCol];
+        notifyCustomerServed(customerId, orderId);
       }
       
-      // Log activity
-      logActivity({
-        action: 'updateOrderStatus',
-        userId: staffId,
-        details: { orderId, newStatus }
-      });
+      logActivity('updateOrderStatus', staffId, { orderId, newStatus });
       
       return { success: true, orderId, newStatus };
     }
   }
   
-  throw new Error('Order not found');
+  throw new Error('ไม่พบออเดอร์');
+}
+
+// ========== NEW ORDER CHECKER ==========
+function checkNewOrders(userId, lastCheck) {
+  try {
+    verifyAuth(userId, 'Staff');
+    
+    const orderSheet = getSheet('Orders');
+    const data = orderSheet.getDataRange().getValues();
+    const headers = data.shift();
+    
+    const timestampCol = headers.indexOf('timestamp');
+    const statusCol = headers.indexOf('status');
+    
+    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
+    
+    const newOrders = data
+      .filter(row => {
+        const orderDate = new Date(row[timestampCol]);
+        return orderDate > lastCheckDate && 
+               ['Pending', 'Cooking'].includes(row[statusCol]);
+      })
+      .map(row => {
+        const order = {};
+        headers.forEach((header, index) => {
+          if (header === 'items' && row[index]) {
+            try {
+              order[header] = JSON.parse(row[index]);
+            } catch {
+              order[header] = row[index];
+            }
+          } else {
+            order[header] = row[index];
+          }
+        });
+        return order;
+      });
+    
+    return {
+      hasNewOrders: newOrders.length > 0,
+      newOrders: newOrders,
+      count: newOrders.length
+    };
+    
+  } catch (error) {
+    logError(error);
+    return { hasNewOrders: false, newOrders: [], count: 0 };
+  }
 }
 
 // ========== BILLING ==========
@@ -350,62 +431,189 @@ function calculateBill(orderId, payment) {
   const orderIdCol = headers.indexOf('orderId');
   const totalPriceCol = headers.indexOf('totalPrice');
   const statusCol = headers.indexOf('status');
+  const paymentStatusCol = headers.indexOf('paymentStatus') || headers.length;
   
   for (let i = 0; i < dataRange.length; i++) {
     if (dataRange[i][orderIdCol] === orderId) {
-      const total = dataRange[i][totalPriceCol];
+      const total = Number(dataRange[i][totalPriceCol]);
       const change = payment - total;
       
       if (change < 0) {
-        throw new Error('Insufficient payment');
+        throw new Error('เงินไม่พอ');
       }
       
-      // Update status to Paid
       orderSheet.getRange(i + 2, statusCol + 1).setValue('Paid');
+      if (paymentStatusCol <= headers.length) {
+        orderSheet.getRange(i + 2, paymentStatusCol + 1).setValue('Paid');
+      }
       
       return {
-        total,
-        payment,
-        change,
+        total: total,
+        payment: payment,
+        change: change,
         success: true
       };
     }
   }
   
-  throw new Error('Order not found');
+  throw new Error('ไม่พบออเดอร์');
 }
 
-// ========== NOTIFICATION SYSTEM (Messaging API) ==========
+// ========== ADMIN MENU MANAGEMENT ==========
+function manageMenu(userId, action, menuData) {
+  verifyAuth(userId, 'Admin');
+  
+  const menuSheet = getSheet('Menu');
+  
+  switch(action) {
+    case 'getAll':
+      return getMenu();
+      
+    case 'update':
+      const { id, updates } = menuData;
+      return updateMenuItem(menuSheet, id, updates);
+      
+    case 'toggle':
+      const { itemId, status } = menuData;
+      return toggleMenuItemStatus(menuSheet, itemId, status);
+      
+    case 'add':
+      return addMenuItem(menuSheet, menuData);
+      
+    case 'delete':
+      const { deleteId } = menuData;
+      return deleteMenuItem(menuSheet, deleteId);
+      
+    default:
+      throw new Error('Invalid action');
+  }
+}
+
+function updateMenuItem(sheet, id, updates) {
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  
+  const idCol = headers.indexOf('id');
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][idCol] === id) {
+      const row = i + 2;
+      
+      Object.entries(updates).forEach(([key, value]) => {
+        const colIndex = headers.indexOf(key) + 1;
+        if (colIndex > 0) {
+          sheet.getRange(row, colIndex).setValue(value);
+        }
+      });
+      
+      return { success: true, message: 'อัพเดทเมนูเรียบร้อย' };
+    }
+  }
+  
+  throw new Error('ไม่พบเมนู');
+}
+
+function toggleMenuItemStatus(sheet, itemId, status) {
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  
+  const idCol = headers.indexOf('id');
+  const statusCol = headers.indexOf('status') + 1;
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][idCol] === itemId) {
+      sheet.getRange(i + 2, statusCol).setValue(status);
+      return { success: true, message: `เปลี่ยนสถานะเป็น ${status} เรียบร้อย` };
+    }
+  }
+  
+  throw new Error('ไม่พบเมนู');
+}
+
+function addMenuItem(sheet, newItem) {
+  const lastRow = sheet.getLastRow();
+  const newId = `M${String(lastRow).padStart(3, '0')}`;
+  
+  const newRow = [
+    newId,
+    newItem.name,
+    newItem.category,
+    newItem.price,
+    newItem.imageUrl || '',
+    newItem.status || 'มี'
+  ];
+  
+  sheet.appendRow(newRow);
+  
+  return { success: true, id: newId, message: 'เพิ่มเมนูเรียบร้อย' };
+}
+
+function deleteMenuItem(sheet, id) {
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  
+  const idCol = headers.indexOf('id');
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][idCol] === id) {
+      sheet.deleteRow(i + 2);
+      return { success: true, message: 'ลบเมนูเรียบร้อย' };
+    }
+  }
+  
+  throw new Error('ไม่พบเมนู');
+}
+
+function getAllUsers() {
+  const userSheet = getSheet('Users');
+  const data = userSheet.getDataRange().getValues();
+  const headers = data.shift();
+  
+  return data.map(row => {
+    const user = {};
+    headers.forEach((header, index) => {
+      user[header] = row[index];
+    });
+    return user;
+  });
+}
+
+// ========== NOTIFICATION SYSTEM ==========
 function notifyNewOrder(orderData) {
   try {
     const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
-    const staffSheet = getSheet('Users');
-    const staffData = staffSheet.getDataRange().getValues();
-    const headers = staffData.shift();
+    if (!channelToken) return;
+    
+    const userSheet = getSheet('Users');
+    const userData = userSheet.getDataRange().getValues();
+    const headers = userData.shift();
     
     const roleCol = headers.indexOf('role');
     const userIdCol = headers.indexOf('userId');
     
-    // หา Staff ทุกคน
-    const staffUsers = staffData
+    const staffUsers = userData
       .filter(row => row[roleCol] === 'Staff' || row[roleCol] === 'Admin')
       .map(row => row[userIdCol]);
     
-    // ส่ง Push Message ไปหา Staff ทุกคน
+    const items = JSON.parse(orderData.items);
+    const itemSummary = items.map(i => `${i.name} x${i.quantity}`).join(', ');
+    
     staffUsers.forEach(staffId => {
       sendLineMessage(staffId, {
         type: 'text',
-        text: `🍜 ออเดอร์ใหม่!\nโต๊ะ: ${orderData.tableNo}\nจำนวน: ${JSON.parse(orderData.items).length} รายการ\nรวม: ${orderData.totalPrice} บาท`
+        text: `🍜 ออเดอร์ใหม่!\nโต๊ะ: ${orderData.tableNo}\nรายการ: ${itemSummary}\nรวม: ${orderData.totalPrice} บาท`
       });
     });
     
   } catch (error) {
     console.error('Failed to send notification:', error);
-    logError(error);
   }
 }
 
 function notifyCustomerServed(customerId, orderId) {
+  const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
+  if (!channelToken) return;
+  
   sendLineMessage(customerId, {
     type: 'text',
     text: `🍜 อาหารของคุณเสิร์ฟแล้ว! กรุณารับที่โต๊ะ\nหมายเลขออเดอร์: ${orderId}\n\nขอให้อร่อยนะคะ 😊`
@@ -414,6 +622,7 @@ function notifyCustomerServed(customerId, orderId) {
 
 function sendLineMessage(userId, message) {
   const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
+  if (!channelToken) return;
   
   const payload = {
     to: userId,
@@ -426,55 +635,26 @@ function sendLineMessage(userId, message) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${channelToken}`
     },
-    payload: JSON.stringify(payload)
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
   };
   
   try {
     UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', options);
   } catch (error) {
     console.error('LINE Push Error:', error);
-    logError(error);
   }
-}
-
-// ========== UTILITIES ==========
-function generateOrderId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 7);
-  return `ORD-${timestamp}-${random}`.toUpperCase();
-}
-
-function convertDriveLink(driveUrl) {
-  // แปลง Google Drive link เป็น direct image URL
-  const fileId = extractFileId(driveUrl);
-  if (fileId) {
-    return `https://drive.google.com/uc?export=view&id=${fileId}`;
-  }
-  return driveUrl;
-}
-
-function extractFileId(url) {
-  const patterns = [
-    /\/d\/([a-zA-Z0-9_-]+)/,
-    /id=([a-zA-Z0-9_-]+)/
-  ];
-  
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
 }
 
 // ========== LOGGING ==========
-function logActivity(data) {
+function logActivity(action, userId, details = {}) {
   try {
     const logSheet = getSheet('Logs');
     logSheet.appendRow([
       new Date(),
-      data.action || 'unknown',
-      data.userId || 'system',
-      JSON.stringify(data.details || {}),
+      action || 'unknown',
+      userId || 'system',
+      JSON.stringify(details),
       getEnvironment(),
       'INFO'
     ]);
@@ -483,13 +663,13 @@ function logActivity(data) {
   }
 }
 
-function logError(error) {
+function logError(error, context = {}) {
   try {
     const logSheet = getSheet('Logs');
     logSheet.appendRow([
       new Date(),
       'ERROR',
-      'system',
+      context.userId || 'system',
       error.toString(),
       getEnvironment(),
       'ERROR'
@@ -511,7 +691,6 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// Include function สำหรับเรียกไฟล์ HTML อื่นๆ
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
