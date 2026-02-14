@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ร้านก๋วยเตี๋ยว</title>
+    
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <!-- LIFF SDK -->
+    <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+    
+    <style>
+        /* Custom styles */
+        .cart-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #ef4444;
+            color: white;
+            border-radius: 9999px;
+            padding: 2px 6px;
+            font-size: 12px;
+            min-width: 20px;
+            text-align: center;
+        }
+        
+        .floating-cart {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 400px;
+            background: white;
+            border-radius: 50px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            border: 2px solid #f59e0b;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .kanban-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .kanban-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .status-pending { border-left-color: #f59e0b; }
+        .status-cooking { border-left-color: #3b82f6; }
+        .status-served { border-left-color: #10b981; }
+        
+        @keyframes slideIn {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+    <!-- Loading Screen -->
+    <div id="loading" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
+        <div class="text-center">
+            <i class="fas fa-utensils text-5xl text-orange-500 animate-bounce mb-4"></i>
+            <p class="text-gray-600">กำลังโหลด...</p>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app" class="min-h-screen pb-24" style="display: none;">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 sticky top-0 z-10 shadow-lg">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold">
+                    <i class="fas fa-utensils mr-2"></i>
+                    <span id="shopName">ร้านก๋วยเตี๋ยว</span>
+                </h1>
+                <div class="flex items-center space-x-4">
+                    <span id="environment" class="text-xs bg-white text-orange-500 px-2 py-1 rounded-full"></span>
+                    <button id="menuToggle" class="text-2xl">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-4 flex space-x-4 overflow-x-auto pb-2 hide-scrollbar" id="mainNav">
+                <!-- Dynamic navigation based on role -->
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main id="mainContent" class="p-4">
+            <!-- Dynamic content loaded here -->
+        </main>
+
+        <!-- Floating Cart (Customer View) -->
+        <div id="floatingCart" class="floating-cart hidden">
+            <div class="flex items-center">
+                <i class="fas fa-shopping-cart text-2xl text-orange-500 mr-3"></i>
+                <div>
+                    <div class="font-bold" id="cartTotal">0 บาท</div>
+                    <div class="text-sm text-gray-500" id="cartCount">0 รายการ</div>
+                </div>
+            </div>
+            <button id="viewCartBtn" class="bg-orange-500 text-white px-6 py-2 rounded-full font-bold">
+                ดูตะกร้า
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+        // ============================================
+        // FRONTEND APPLICATION LOGIC
+        // SPA with State Management
+        // ============================================
+        
+        // Global State
+        const AppState = {
+            user: null,
+            config: null,
+            role: 'Customer', // Default
+            cart: [],
+            menu: [],
+            orders: [],
+            currentView: 'menu',
+            tableNo: ''
+        };
+
+        // LIFF Initialization
+        async function initializeLiff() {
+            try {
+                // Get config from server first
+                const config = await fetchConfig();
+                AppState.config = config;
+                
+                document.getElementById('environment').textContent = config.environment;
+                
+                // Initialize LIFF
+                await liff.init({ liffId: config.liffId });
+                
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                
+                // Get user profile
+                const profile = await liff.getProfile();
+                const token = liff.getDecodedIDToken();
+                
+                AppState.user = {
+                    userId: profile.userId,
+                    name: profile.displayName,
+                    email: token?.email,
+                    picture: profile.pictureUrl
+                };
+                
+                // Check user role from server
+                await checkUserRole();
+                
+                // Hide loading, show app
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                
+                // Initialize views
+                initializeNavigation();
+                loadInitialView();
+                
+            } catch (error) {
+                console.error('LIFF Init Error:', error);
+                showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+            }
+        }
+
+        // Fetch config from server
+        async function fetchConfig() {
+            const response = await fetch(scriptUrl, {
+                method: 'POST',
+                body: new URLSearchParams({
+                    action: 'getConfig'
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                return data.data;
+            }
+            throw new Error('Failed to fetch config');
+        }
+
+        // Check user role
+        async function checkUserRole() {
+            // This would typically call an API to check role
+            // For demo, we'll simulate based on some condition
+            const response = await callApi('checkRole', { userId: AppState.user.userId });
+            if (response.success) {
+                AppState.role = response.data.role;
+            }
+        }
+
+        // API Call Helper
+        async function callApi(action, data = {}) {
+            const payload = {
+                action,
+                userId: AppState.user?.userId,
+                ...data
+            };
+            
+            const response = await fetch(scriptUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: new URLSearchParams(payload)
+            });
+            
+            return await response.json();
+        }
+
+        // Navigation
+        function initializeNavigation() {
+            const nav = document.getElementById('mainNav');
+            const views = getViewsByRole();
+            
+            nav.innerHTML = views.map(view => `
+                <button class="nav-item px-4 py-2 whitespace-nowrap rounded-full transition-colors
+                    ${AppState.currentView === view.id ? 'bg-white text-orange-500 font-bold' : 'text-white hover:bg-white/20'}"
+                    onclick="switchView('${view.id}')">
+                    <i class="${view.icon} mr-1"></i>
+                    ${view.name}
+                </button>
+            `).join('');
+        }
+
+        function getViewsByRole() {
+            const commonViews = [
+                { id: 'menu', name: 'เมนู', icon: 'fas fa-utensils', roles: ['Customer', 'Staff', 'Admin'] },
+                { id: 'orders', name: 'ออเดอร์ของฉัน', icon: 'fas fa-clipboard-list', roles: ['Customer'] }
+            ];
+            
+            const staffViews = [
+                { id: 'kitchen', name: 'ครัว', icon: 'fas fa-fire', roles: ['Staff', 'Admin'] },
+                { id: 'billing', name: 'คิดเงิน', icon: 'fas fa-cash-register', roles: ['Staff', 'Admin'] }
+            ];
+            
+            const adminViews = [
+                { id: 'admin', name: 'จัดการ', icon: 'fas fa-cog', roles: ['Admin'] },
+                { id: 'reports', name: 'รายงาน', icon: 'fas fa-chart-bar', roles: ['Admin'] }
+            ];
+            
+            return [...commonViews, ...staffViews, ...adminViews]
+                .filter(view => view.roles.includes(AppState.role));
+        }
+
+        function switchView(viewId) {
+            AppState.currentView = viewId;
+            initializeNavigation();
+            loadView(viewId);
+        }
+
+        async function loadView(viewId) {
+            const content = document.getElementById('mainContent');
+            
+            switch(viewId) {
+                case 'menu':
+                    await loadMenuView(content);
+                    break;
+                case 'orders':
+                    await loadOrdersView(content);
+                    break;
+                case 'kitchen':
+                    await loadKitchenView(content);
+                    break;
+                case 'billing':
+                    await loadBillingView(content);
+                    break;
+                case 'admin':
+                    await loadAdminView(content);
+                    break;
+                case 'reports':
+                    await loadReportsView(content);
+                    break;
+            }
+        }
+
+        // ========== MENU VIEW ==========
+        async function loadMenuView(container) {
+            const menu = await callApi('getMenu');
+            AppState.menu = menu.data;
+            
+            // Group by category
+            const categories = {};
+            menu.data.forEach(item => {
+                if (!categories[item.category]) {
+                    categories[item.category] = [];
+                }
+                categories[item.category].push(item);
+            });
+            
+            container.innerHTML = `
+                <div class="space-y-6">
+                    ${Object.entries(categories).map(([category, items]) => `
+                        <div>
+                            <h2 class="text-xl font-bold mb-3">${category}</h2>
+                            <div class="grid grid-cols-2 gap-3">
+                                ${items.map(item => `
+                                    <div class="bg-white rounded-xl shadow-sm overflow-hidden" onclick="showItemModal(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                                        ${item.imageUrl ? `
+                                            <img src="${item.imageUrl}" class="w-full h-32 object-cover" alt="${item.name}">
+                                        ` : `
+                                            <div class="w-full h-32 bg-gray-200 flex items-center justify-center">
+                                                <i class="fas fa-image text-gray-400 text-3xl"></i>
+                                            </div>
+                                        `}
+                                        <div class="p-3">
+                                            <h3 class="font-bold">${item.name}</h3>
+                                            <p class="text-orange-500 font-bold mt-1">฿${item.price}</p>
+                                            ${item.status === 'หมด' ? `
+                                                <span class="inline-block bg-red-100 text-red-600 text-xs px-2 py-1 rounded-full mt-2">หมด</span>
+                                            ` : `
+                                                <button class="mt-2 text-blue-500 text-sm" onclick="event.stopPropagation(); addToCart(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                                                    <i class="fas fa-plus-circle"></i> เพิ่ม
+                                                </button>
+                                            `}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            // Show floating cart for customers
+            if (AppState.role === 'Customer') {
+                document.getElementById('floatingCart').classList.remove('hidden');
+                updateCartDisplay();
+            }
+        }
+
+        // Item Modal with options
+        function showItemModal(item) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold">${item.name}</h3>
+                        <button onclick="this.closest('.modal').remove()" class="text-gray-500">
+                            <i class="fas fa-times text-2xl"></i>
+                        </button>
+                    </div>
+                    
+                    ${item.imageUrl ? `
+                        <img src="${item.imageUrl}" class="w-full h-48 object-cover rounded-lg mb-4">
+                    ` : ''}
+                    
+                    <p class="text-gray-600 mb-4">฿${item.price}</p>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-2">ประเภทเส้น</label>
+                            <select id="noodleType" class="w-full p-2 border rounded-lg">
+                                <option>เส้นเล็ก</option>
+                                <option>เส้นใหญ่</option>
+                                <option>เส้นหมี่</option>
+                                <option>บะหมี่</option>
+                                <option>วุ้นเส้น</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-2">ระดับความเผ็ด</label>
+                            <div class="flex space-x-2">
+                                ${['ไม่เผ็ด', 'น้อย', 'กลาง', 'มาก'].map(level => `
+                                    <button class="flex-1 py-2 border rounded-lg hover:bg-orange-50" 
+                                            onclick="selectSpicy(this, '${level}')">${level}</button>
+                                `).join('')}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-2">หมายเหตุเพิ่มเติม</label>
+                            <textarea id="specialNote" class="w-full p-2 border rounded-lg" 
+                                      placeholder="เช่น ไม่ใส่ผัก, เพิ่มไข่"></textarea>
+                        </div>
+                        
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center border rounded-lg">
+                                <button onclick="updateQuantity(-1)" class="px-4 py-2 text-xl">-</button>
+                                <span id="quantity" class="px-4 py-2">1</span>
+                                <button onclick="updateQuantity(1)" class="px-4 py-2 text-xl">+</button>
+                            </div>
+                            <button onclick="addToCartWithOptions(${JSON.stringify(item).replace(/"/g, '&quot;')})" 
+                                    class="bg-orange-500 text-white px-6 py-2 rounded-lg font-bold">
+                                เพิ่มลงตะกร้า
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+
+        // ========== CART MANAGEMENT ==========
+        function addToCart(item) {
+            const cartItem = {
+                ...item,
+                cartId: Date.now() + Math.random(),
+                quantity: 1,
+                options: {}
+            };
+            
+            AppState.cart.push(cartItem);
+            updateCartDisplay();
+            showToast('เพิ่ม ' + item.name + ' ลงตะกร้าแล้ว');
+        }
+
+        function updateCartDisplay() {
+            const total = AppState.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const count = AppState.cart.reduce((sum, item) => sum + item.quantity, 0);
+            
+            document.getElementById('cartTotal').textContent = `฿${total}`;
+            document.getElementById('cartCount').textContent = `${count} รายการ`;
+        }
+
+        // ========== KITCHEN VIEW (Kanban) ==========
+        async function loadKitchenView(container) {
+            const orders = await callApi('getActiveOrders');
+            AppState.orders = orders.data;
+            
+            // Group by status
+            const grouped = {
+                'Pending': orders.data.filter(o => o.status === 'Pending'),
+                'Cooking': orders.data.filter(o => o.status === 'Cooking'),
+                'Served': orders.data.filter(o => o.status === 'Served')
+            };
+            
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    ${Object.entries(grouped).map(([status, items]) => `
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <h3 class="font-bold text-lg mb-3 flex items-center">
+                                <span class="w-3 h-3 rounded-full mr-2
+                                    ${status === 'Pending' ? 'bg-yellow-500' : ''}
+                                    ${status === 'Cooking' ? 'bg-blue-500' : ''}
+                                    ${status === 'Served' ? 'bg-green-500' : ''}">
+                                </span>
+                                ${status === 'Pending' ? 'รอปรุง' : ''}
+                                ${status === 'Cooking' ? 'กำลังทำ' : ''}
+                                ${status === 'Served' ? 'เสิร์ฟแล้ว' : ''}
+                                <span class="ml-2 bg-gray-200 text-gray-700 px-2 py-1 rounded-full text-sm">
+                                    ${items.length}
+                                </span>
+                            </h3>
+                            
+                            <div class="space-y-3">
+                                ${items.map(order => `
+                                    <div class="kanban-card status-${order.status.toLowerCase()}" 
+                                         onclick="showOrderDetail('${order.orderId}')">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <span class="font-bold">โต๊ะ ${order.tableNo}</span>
+                                            <span class="text-sm text-gray-500">
+                                                ${new Date(order.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <div class="text-sm space-y-1">
+                                            ${JSON.parse(order.items).map(item => `
+                                                <div class="flex justify-between">
+                                                    <span>${item.name} x${item.quantity}</span>
+                                                    ${item.options?.noodle ? `<span class="text-gray-500">(${item.options.noodle})</span>` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                        <div class="mt-3 flex space-x-2">
+                                            ${order.status === 'Pending' ? `
+                                                <button class="flex-1 bg-blue-500 text-white px-3 py-1 rounded-full text-sm"
+                                                        onclick="event.stopPropagation(); updateOrderStatus('${order.orderId}', 'Cooking')">
+                                                    เริ่มทำ
+                                                </button>
+                                            ` : ''}
+                                            ${order.status === 'Cooking' ? `
+                                                <button class="flex-1 bg-green-500 text-white px-3 py-1 rounded-full text-sm"
+                                                        onclick="event.stopPropagation(); updateOrderStatus('${order.orderId}', 'Served')">
+                                                    เสิร์ฟ
+                                                </button>
+                                            ` : ''}
+                                            ${order.status === 'Served' ? `
+                                                <button class="flex-1 bg-gray-500 text-white px-3 py-1 rounded-full text-sm"
+                                                        onclick="event.stopPropagation(); updateOrderStatus('${order.orderId}', 'Paid')">
+                                                    คิดเงิน
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            // Audio notification for new orders
+            if (grouped.Pending.length > 0) {
+                playNotificationSound();
+            }
+        }
+
+        // Update order status
+        async function updateOrderStatus(orderId, newStatus) {
+            const result = await callApi('updateOrderStatus', { orderId, newStatus });
+            if (result.success) {
+                showToast('อัปเดตสถานะเรียบร้อย');
+                loadKitchenView(document.getElementById('mainContent'));
+            }
+        }
+
+        // ========== BILLING VIEW ==========
+        function loadBillingView(container) {
+            const paidOrders = AppState.orders.filter(o => o.status === 'Served');
+            
+            container.innerHTML = `
+                <div class="space-y-4">
+                    <h2 class="text-xl font-bold">คิดเงิน</h2>
+                    
+                    <div class="space-y-3">
+                        ${paidOrders.map(order => `
+                            <div class="bg-white rounded-xl p-4 shadow-sm">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="font-bold">โต๊ะ ${order.tableNo}</span>
+                                    <span class="text-sm text-gray-500">${new Date(order.timestamp).toLocaleTimeString('th-TH')}</span>
+                                </div>
+                                <div class="text-sm mb-3">
+                                    ${JSON.parse(order.items).map(item => `
+                                        <div class="flex justify-between">
+                                            <span>${item.name} x${item.quantity}</span>
+                                            <span>฿${item.price * item.quantity}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                <div class="border-t pt-3">
+                                    <div class="flex justify-between font-bold text-lg">
+                                        <span>รวม</span>
+                                        <span class="text-orange-500">฿${order.totalPrice}</span>
+                                    </div>
+                                    <button class="w-full mt-3 bg-orange-500 text-white py-2 rounded-lg font-bold"
+                                            onclick="showPaymentModal('${order.orderId}', ${order.totalPrice})">
+                                        คิดเงิน
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                        
+                        ${paidOrders.length === 0 ? `
+                            <div class="text-center py-8 text-gray-500">
+                                <i class="fas fa-receipt text-5xl mb-3"></i>
+                                <p>ไม่มีออเดอร์ที่รอคิดเงิน</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Payment Modal
+        function showPaymentModal(orderId, total) {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <h3 class="text-xl font-bold mb-4">คิดเงิน โต๊ะ ${orderId}</h3>
+                    
+                    <div class="text-2xl font-bold text-center mb-4">
+                        ฿${total}
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-2">รับเงินมา</label>
+                            <input type="number" id="paymentAmount" class="w-full p-3 border rounded-lg text-lg" 
+                                   placeholder="0" onchange="calculateChange(${total})">
+                        </div>
+                        
+                        <div id="changeDisplay" class="text-right text-lg">
+                            เงินทอน: <span class="font-bold text-green-600">0</span> บาท
+                        </div>
+                        
+                        <div class="flex space-x-2">
+                            <button onclick="this.closest('.modal').remove()" 
+                                    class="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-bold">
+                                ยกเลิก
+                            </button>
+                            <button onclick="processPayment('${orderId}', ${total})" 
+                                    class="flex-1 bg-orange-500 text-white py-3 rounded-lg font-bold">
+                                ยืนยัน
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+
+        function calculateChange(total) {
+            const payment = parseFloat(document.getElementById('paymentAmount').value) || 0;
+            const change = payment - total;
+            document.getElementById('changeDisplay').innerHTML = 
+                `เงินทอน: <span class="font-bold text-green-600">฿${change > 0 ? change : 0}</span> บาท`;
+        }
+
+        // ========== HELPER FUNCTIONS ==========
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.remove('hidden');
+            
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        function playNotificationSound() {
+            const audio = new Audio('https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3');
+            audio.play().catch(e => console.log('Audio play failed:', e));
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            const scriptUrl = '${getScriptUrl()}';
+            initializeLiff();
+        });
+    </script>
+</body>
+</html>
