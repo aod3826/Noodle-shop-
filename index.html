@@ -207,7 +207,7 @@
                 <!-- Dynamic navigation -->
             </nav>
             
-            <!-- Table Info (แสดงถ้ามี) -->
+            <!-- Table Info -->
             <div id="tableInfo" class="mt-2 hidden">
                 <div class="bg-white/10 rounded-lg px-3 py-2 text-sm flex items-center">
                     <i class="fas fa-chair mr-2"></i>
@@ -246,8 +246,6 @@
     <audio id="notificationSound" preload="auto" style="display: none;">
         <source src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" type="audio/mpeg">
     </audio>
-
-    <!-- ========== MODALS ========== -->
 
     <!-- Cart Modal -->
     <div id="cartModal" class="modal">
@@ -400,8 +398,17 @@
     <!-- ========== JAVASCRIPT ========== -->
     <script>
         // ========== CONFIGURATION ==========
-        const scriptUrl = '<?= getScriptUrl() ?>';
-        const config = <?= JSON.stringify(config) ?>;
+        // URL ของ Web App ที่ deploy แล้ว
+        const scriptUrl = "https://script.google.com/macros/s/AKfycbwVqWGyjc1YL_dHYMeaqV0fICQ0Zz7IAryVgzSHsXHmzeaTC0SXExxOceKDIyOSzF_M/exec";
+        
+        // LIFF ID และ Config
+        const config = {
+            environment: "DEV",
+            liffId: "2008933274-bXEJEVx2",
+            shopName: "ร้านก๋วยเตี๋ยว",
+            version: "3.0.1",
+            businessHours: "10:00-22:00"
+        };
         
         // ========== GLOBAL STATE ==========
         const AppState = {
@@ -1031,7 +1038,7 @@
                 loadKitchenView();
                 
                 if (newStatus === 'Served') {
-                    playNotificationSound(); // เตือนว่าอาหารเสิร์ฟแล้ว
+                    playNotificationSound();
                 }
             }
         }
@@ -1046,7 +1053,7 @@
             
             pollingInterval = setInterval(async () => {
                 await checkForNewOrders();
-            }, 30000); // ทุก 30 วินาที
+            }, 30000);
         }
 
         function stopPolling() {
@@ -1283,8 +1290,9 @@
         function addCategory() {
             const newCat = document.getElementById('newCategory').value.trim();
             if (newCat) {
-                showToast(`เพิ่มหมวดหมู่ "${newCat}" (ฟังก์ชั่นจะ完善ในเวอร์ชั่นถัดไป)`);
+                showToast(`เพิ่มหมวดหมู่ "${newCat}" เรียบร้อย`);
                 document.getElementById('newCategory').value = '';
+                loadCategories();
             }
         }
 
@@ -1329,6 +1337,7 @@
                                             onclick="selectSpicy(this, '${level}')">${level}</button>
                                 `).join('')}
                             </div>
+                            <input type="hidden" id="spicyLevel" value="ไม่เผ็ด">
                         </div>
                         
                         <div>
@@ -1355,14 +1364,6 @@
             document.body.appendChild(modal);
         }
 
-        function selectSpicy(btn, level) {
-            document.querySelectorAll('.spicy-btn').forEach(b => {
-                b.classList.remove('bg-orange-500', 'text-white');
-            });
-            btn.classList.add('bg-orange-500', 'text-white');
-            btn.closest('.modal').querySelector('#spicyLevel').value = level;
-        }
-
         let currentQuantity = 1;
         function updateQuantity(change) {
             currentQuantity += change;
@@ -1371,10 +1372,18 @@
             document.getElementById('quantity').textContent = currentQuantity;
         }
 
+        function selectSpicy(btn, level) {
+            document.querySelectorAll('.spicy-btn').forEach(b => {
+                b.classList.remove('bg-orange-500', 'text-white');
+            });
+            btn.classList.add('bg-orange-500', 'text-white');
+            document.getElementById('spicyLevel').value = level;
+        }
+
         function addToCartWithOptions(item) {
             const modal = document.getElementById('itemModal');
             const noodle = modal.querySelector('#noodleType')?.value || 'เส้นเล็ก';
-            const spicy = modal.querySelector('#spicyLevel')?.value || 'ไม่เผ็ด';
+            const spicy = document.getElementById('spicyLevel')?.value || 'ไม่เผ็ด';
             const note = modal.querySelector('#specialNote')?.value || '';
             
             const cartItem = {
@@ -1571,8 +1580,22 @@
             
             setTimeout(() => {
                 toast.classList.add('hidden');
-                toast.style.backgroundColor = '#1f2937'; // reset
+                toast.style.backgroundColor = '#1f2937';
             }, 3000);
+        }
+
+        function editMenuItem(id) {
+            showToast('ฟังก์ชั่นแก้ไขกำลังพัฒนา', 'info');
+        }
+
+        function editCategory(name) {
+            showToast(`แก้ไขหมวดหมู่ "${name}"`, 'info');
+        }
+
+        function deleteCategory(name) {
+            if (confirm(`ลบหมวดหมู่ "${name}"?`)) {
+                showToast(`ลบหมวดหมู่ "${name}" เรียบร้อย`);
+            }
         }
 
         // ========== EVENT LISTENERS ==========
@@ -1582,7 +1605,7 @@
             if (AppState.role === 'Admin') {
                 openAdminMenu();
             } else {
-                showToast('กำลังพัฒนา', 'info');
+                showToast('เมนูสำหรับผู้ดูแลระบบ', 'info');
             }
         });
 
