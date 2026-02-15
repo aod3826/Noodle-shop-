@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title><?= config.shopName ?></title>
+    <title>ร้านก๋วยเตี๋ยว</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,6 +17,11 @@
     <style>
         * {
             -webkit-tap-highlight-color: transparent;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Sukhumvit Set', 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         
         .cart-badge {
@@ -103,6 +108,11 @@
             to { transform: translateY(0); opacity: 1; }
         }
         
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
         .toast {
             position: fixed;
             bottom: 80px;
@@ -132,11 +142,6 @@
         
         .menu-item:active {
             transform: scale(0.98);
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
         }
         
         .new-order-pulse {
@@ -173,6 +178,20 @@
             color: #f59e0b;
             border-bottom: 2px solid #f59e0b;
         }
+        
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #f59e0b;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
@@ -181,7 +200,7 @@
         <div class="text-center">
             <div class="w-20 h-20 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin mx-auto mb-4"></div>
             <p class="text-gray-600 text-lg">กำลังโหลด...</p>
-            <p class="text-gray-400 text-sm mt-2"><?= config.shopName ?></p>
+            <p class="text-gray-400 text-sm mt-2" id="loadingShopName">ร้านก๋วยเตี๋ยว</p>
         </div>
     </div>
 
@@ -192,7 +211,7 @@
             <div class="flex justify-between items-center mb-2">
                 <h1 class="text-2xl font-bold flex items-center">
                     <i class="fas fa-utensils mr-2"></i>
-                    <span id="shopName"><?= config.shopName ?></span>
+                    <span id="shopName">ร้านก๋วยเตี๋ยว</span>
                 </h1>
                 <div class="flex items-center space-x-3">
                     <span id="environment" class="text-xs bg-white/20 px-3 py-1 rounded-full"></span>
@@ -203,23 +222,19 @@
             </div>
             
             <!-- Navigation -->
-            <nav id="mainNav" class="flex space-x-2 overflow-x-auto pb-2 hide-scrollbar">
-                <!-- Dynamic navigation -->
-            </nav>
+            <nav id="mainNav" class="flex space-x-2 overflow-x-auto pb-2 hide-scrollbar"></nav>
             
             <!-- Table Info -->
             <div id="tableInfo" class="mt-2 hidden">
                 <div class="bg-white/10 rounded-lg px-3 py-2 text-sm flex items-center">
                     <i class="fas fa-chair mr-2"></i>
-                    <span>โต๊ะ: <span id="currentTable" class="font-bold">-</span></span>
+                    <span>โต๊ะ: <span id="currentTable" class="font-bold ml-1"></span></span>
                 </div>
             </div>
         </header>
 
         <!-- Main Content -->
-        <main id="mainContent" class="p-4">
-            <!-- Dynamic content -->
-        </main>
+        <main id="mainContent" class="p-4"></main>
 
         <!-- Floating Cart -->
         <div id="floatingCart" class="floating-cart hidden">
@@ -257,9 +272,7 @@
                 </button>
             </div>
             
-            <div id="cartItems" class="space-y-3 max-h-60 overflow-y-auto mb-4">
-                <!-- Cart items will be loaded here -->
-            </div>
+            <div id="cartItems" class="space-y-3 max-h-60 overflow-y-auto mb-4"></div>
             
             <div class="border-t pt-4 mb-4">
                 <div class="flex justify-between font-bold text-lg">
@@ -274,6 +287,12 @@
                           placeholder="เช่น ไม่ใส่ผัก, เพิ่มไข่"></textarea>
             </div>
             
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2">เลขโต๊ะ</label>
+                <input type="text" id="tableInput" class="w-full p-3 border rounded-lg" 
+                       placeholder="เช่น 5, 10, A3" value="">
+            </div>
+            
             <button onclick="createOrder()" 
                     class="w-full bg-orange-500 text-white py-3 rounded-lg font-bold text-lg hover:bg-orange-600">
                 สั่งอาหาร
@@ -281,135 +300,19 @@
         </div>
     </div>
 
-    <!-- Admin Modal -->
-    <div id="adminModal" class="modal">
-        <div class="modal-content max-w-4xl">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-2xl font-bold">จัดการเมนู</h3>
-                <button onclick="closeAdminModal()" class="text-gray-500 hover:text-gray-700">
-                    <i class="fas fa-times text-2xl"></i>
-                </button>
-            </div>
-            
-            <!-- Tabs -->
-            <div class="flex border-b mb-4 space-x-4">
-                <button class="tab-btn px-4 py-2 font-medium active" data-tab="list" onclick="switchAdminTab('list')">
-                    <i class="fas fa-list mr-1"></i> รายการเมนู
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium" data-tab="add" onclick="switchAdminTab('add')">
-                    <i class="fas fa-plus mr-1"></i> เพิ่มเมนู
-                </button>
-                <button class="tab-btn px-4 py-2 font-medium" data-tab="categories" onclick="switchAdminTab('categories')">
-                    <i class="fas fa-tags mr-1"></i> หมวดหมู่
-                </button>
-            </div>
-            
-            <!-- Tab Content -->
-            <div id="adminTabContent">
-                <!-- List Tab -->
-                <div id="menuListTab" class="tab-content">
-                    <div class="mb-4">
-                        <div class="relative">
-                            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
-                            <input type="text" 
-                                   id="searchMenu" 
-                                   placeholder="ค้นหาเมนู..." 
-                                   class="w-full p-2 pl-10 border rounded-lg"
-                                   onkeyup="filterMenu()">
-                        </div>
-                    </div>
-                    <div id="menuItemsList" class="space-y-2 max-h-[400px] overflow-y-auto">
-                        <!-- Menu items loaded here -->
-                    </div>
-                </div>
-                
-                <!-- Add Tab -->
-                <div id="addMenuTab" class="tab-content hidden">
-                    <form id="addMenuForm" class="space-y-4" onsubmit="event.preventDefault(); addNewMenu();">
-                        <div>
-                            <label class="block text-sm font-medium mb-1">ชื่อเมนู <span class="text-red-500">*</span></label>
-                            <input type="text" id="menuName" required 
-                                   class="w-full p-2 border rounded-lg focus:ring-2 focus:ring-orange-200">
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm font-medium mb-1">หมวดหมู่ <span class="text-red-500">*</span></label>
-                            <select id="menuCategory" required class="w-full p-2 border rounded-lg">
-                                <option value="">เลือกหมวดหมู่</option>
-                                <option value="น้ำใส">น้ำใส</option>
-                                <option value="ต้มยำ">ต้มยำ</option>
-                                <option value="แห้ง">แห้ง</option>
-                                <option value="เย็นตาโฟ">เย็นตาโฟ</option>
-                                <option value="เกาเหลา">เกาเหลา</option>
-                                <option value="พิเศษ">พิเศษ</option>
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm font-medium mb-1">ราคา <span class="text-red-500">*</span></label>
-                            <input type="number" id="menuPrice" required min="0" step="1"
-                                   class="w-full p-2 border rounded-lg">
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm font-medium mb-1">รูปภาพ URL</label>
-                            <input type="url" id="menuImage" 
-                                   class="w-full p-2 border rounded-lg"
-                                   placeholder="https://...">
-                            <p class="text-xs text-gray-500 mt-1">รองรับ Google Drive, Imgur หรือ URL รูปภาพ</p>
-                        </div>
-                        
-                        <div class="flex space-x-2 pt-4">
-                            <button type="submit" 
-                                    class="flex-1 bg-green-500 text-white py-2 rounded-lg font-bold hover:bg-green-600">
-                                <i class="fas fa-save mr-1"></i> บันทึก
-                            </button>
-                            <button type="button" 
-                                    onclick="switchAdminTab('list')"
-                                    class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-bold hover:bg-gray-300">
-                                ยกเลิก
-                            </button>
-                        </div>
-                    </form>
-                </div>
-                
-                <!-- Categories Tab -->
-                <div id="categoriesTab" class="tab-content hidden">
-                    <div class="space-y-4">
-                        <div class="flex space-x-2">
-                            <input type="text" id="newCategory" 
-                                   placeholder="ชื่อหมวดหมู่ใหม่" 
-                                   class="flex-1 p-2 border rounded-lg">
-                            <button onclick="addCategory()" 
-                                    class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
-                                <i class="fas fa-plus mr-1"></i> เพิ่ม
-                            </button>
-                        </div>
-                        
-                        <div id="categoriesList" class="space-y-2">
-                            <!-- Categories loaded here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- ========== JAVASCRIPT ========== -->
     <script>
         // ========== CONFIGURATION ==========
-        // URL ของ Web App ที่ deploy แล้ว
         const scriptUrl = "https://script.google.com/macros/s/AKfycbwVqWGyjc1YL_dHYMeaqV0fICQ0Zz7IAryVgzSHsXHmzeaTC0SXExxOceKDIyOSzF_M/exec";
         
-        // LIFF ID และ Config
-        const config = {
+        let config = {
             environment: "DEV",
             liffId: "2008933274-bXEJEVx2",
             shopName: "ร้านก๋วยเตี๋ยว",
-            version: "3.0.1",
+            version: "5.0.0",
             businessHours: "10:00-22:00"
         };
-        
+
         // ========== GLOBAL STATE ==========
         const AppState = {
             user: null,
@@ -423,9 +326,106 @@
             lastOrderCheck: new Date()
         };
 
-        // ========== INITIALIZATION ==========
+        // ========== HELPER FUNCTIONS ==========
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.remove('hidden');
+            
+            if (type === 'error') toast.style.backgroundColor = '#dc2626';
+            else if (type === 'info') toast.style.backgroundColor = '#3b82f6';
+            else toast.style.backgroundColor = '#1f2937';
+            
+            setTimeout(() => {
+                toast.classList.add('hidden');
+                toast.style.backgroundColor = '#1f2937';
+            }, 3000);
+        }
+
+        function playNotificationSound() {
+            const sound = document.getElementById('notificationSound');
+            if (sound) {
+                sound.play().catch(e => {
+                    console.log('Cannot play sound');
+                    if (navigator.vibrate) navigator.vibrate(200);
+                });
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('loading').innerHTML = `
+                <div class="text-center p-8 max-w-sm mx-auto">
+                    <i class="fas fa-exclamation-circle text-5xl text-red-500 mb-4"></i>
+                    <p class="text-red-600 font-bold mb-2">เกิดข้อผิดพลาด</p>
+                    <p class="text-gray-600 text-sm mb-4">${message || 'ไม่สามารถเชื่อมต่อกับระบบได้'}</p>
+                    <button onclick="location.reload()" 
+                            class="bg-orange-500 text-white px-6 py-2 rounded-full">
+                        ลองใหม่อีกครั้ง
+                    </button>
+                </div>
+            `;
+        }
+
+        // ========== API CALL ==========
+        async function callApi(action, data = {}) {
+            const payload = {
+                action: action,
+                userId: AppState.user?.userId || 'test-user',
+                ...data
+            };
+            
+            try {
+                const response = await fetch(scriptUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams(payload)
+                });
+                
+                const text = await response.text();
+                
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Invalid JSON response:', text);
+                    return { success: false, error: 'Invalid response from server' };
+                }
+                
+            } catch (error) {
+                console.error('API Call Error:', error);
+                return { success: false, error: 'Connection failed' };
+            }
+        }
+
+        // ========== LOAD CONFIG ==========
+        async function loadConfig() {
+            const result = await callApi('getConfig');
+            if (result.success && result.data) {
+                config = { ...config, ...result.data };
+            }
+            document.getElementById('loadingShopName').textContent = config.shopName;
+        }
+
+        // ========== AUTO TABLE FROM URL ==========
+        function getTableFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const table = urlParams.get('table');
+            if (table) {
+                AppState.tableNo = table;
+                document.getElementById('tableInfo')?.classList.remove('hidden');
+                document.getElementById('currentTable').textContent = table;
+                document.getElementById('tableInput') && (document.getElementById('tableInput').value = table);
+                showToast(`✅ ใช้โต๊ะที่ ${table}`, 'success');
+            }
+            return table;
+        }
+
+        // ========== LIFF INITIALIZATION ==========
         async function initializeLiff() {
             try {
+                await loadConfig();
+                
                 document.getElementById('environment').textContent = config.environment;
                 document.getElementById('shopName').textContent = config.shopName;
                 
@@ -437,114 +437,60 @@
                 }
                 
                 const profile = await liff.getProfile();
-                const token = liff.getDecodedIDToken();
-                
                 AppState.user = {
                     userId: profile.userId,
                     name: profile.displayName,
                     picture: profile.pictureUrl
                 };
                 
-                // Check table from URL
+                // Auto table from URL
                 getTableFromUrl();
                 
-                // Check user role
-                await checkUserRole();
+                // Mock role (ในระบบจริงควร query จาก backend)
+                if (profile.userId.includes('admin')) AppState.role = 'Admin';
+                else if (profile.userId.includes('staff')) AppState.role = 'Staff';
+                else AppState.role = 'Customer';
                 
-                // Hide loading
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
                 
-                // Initialize
                 initializeNavigation();
-                loadInitialView();
+                setTimeout(() => loadInitialView(), 100);
                 
             } catch (error) {
                 console.error('LIFF Init Error:', error);
-                showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
-                setTimeout(() => location.reload(), 3000);
-            }
-        }
-
-        async function checkUserRole() {
-            // ในระบบจริงควรมี API checkRole
-            // แต่ตอนนี้ใช้ mock
-            if (AppState.user.userId === 'Uadmin123') {
-                AppState.role = 'Admin';
-            } else {
-                AppState.role = 'Customer';
-            }
-        }
-
-        function getTableFromUrl() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const table = urlParams.get('table');
-            if (table) {
-                AppState.tableNo = table;
-                document.getElementById('tableInfo').classList.remove('hidden');
-                document.getElementById('currentTable').textContent = table;
-                showToast(`✅ ใช้โต๊ะที่ ${table}`, 'success');
-            }
-            return table;
-        }
-
-        // ========== API CALL ==========
-        async function callApi(action, data = {}) {
-            const payload = {
-                action,
-                userId: AppState.user?.userId,
-                ...data
-            };
-            
-            try {
-                const response = await fetch(scriptUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: new URLSearchParams(payload)
-                });
-                
-                return await response.json();
-            } catch (error) {
-                console.error('API Call Error:', error);
-                showToast('ไม่สามารถติดต่อเซิร์ฟเวอร์ได้', 'error');
-                return { success: false, error: 'Connection failed' };
+                showError(error.message);
             }
         }
 
         // ========== NAVIGATION ==========
         function initializeNavigation() {
-            const nav = document.getElementById('mainNav');
             const views = getViewsByRole();
+            const nav = document.getElementById('mainNav');
             
             nav.innerHTML = views.map(view => `
                 <button class="nav-item px-4 py-2 whitespace-nowrap rounded-full transition-colors
                     ${AppState.currentView === view.id ? 'bg-white text-orange-500 font-bold' : 'text-white hover:bg-white/20'}"
                     onclick="switchView('${view.id}')">
-                    <i class="${view.icon} mr-1"></i>
-                    ${view.name}
+                    <i class="${view.icon} mr-1"></i>${view.name}
                 </button>
             `).join('');
         }
 
         function getViewsByRole() {
-            const commonViews = [
+            const common = [
                 { id: 'menu', name: 'เมนู', icon: 'fas fa-utensils', roles: ['Customer', 'Staff', 'Admin'] },
                 { id: 'orders', name: 'ออเดอร์ของฉัน', icon: 'fas fa-clipboard-list', roles: ['Customer'] }
             ];
-            
-            const staffViews = [
+            const staff = [
                 { id: 'kitchen', name: 'ครัว', icon: 'fas fa-fire', roles: ['Staff', 'Admin'] },
                 { id: 'billing', name: 'คิดเงิน', icon: 'fas fa-cash-register', roles: ['Staff', 'Admin'] }
             ];
-            
-            const adminViews = [
-                { id: 'admin', name: 'จัดการ', icon: 'fas fa-cog', roles: ['Admin'] }
+            const admin = [
+                { id: 'admin', name: 'จัดการเมนู', icon: 'fas fa-cog', roles: ['Admin'] }
             ];
             
-            return [...commonViews, ...staffViews, ...adminViews]
-                .filter(view => view.roles.includes(AppState.role));
+            return [...common, ...staff, ...admin].filter(v => v.roles.includes(AppState.role));
         }
 
         function switchView(viewId) {
@@ -552,42 +498,70 @@
             initializeNavigation();
             loadView(viewId);
             
-            if (viewId === 'kitchen' || viewId === 'billing') {
-                startPolling();
-            } else {
-                stopPolling();
-            }
+            if (['kitchen', 'billing'].includes(viewId)) startPolling();
+            else stopPolling();
+        }
+
+        function loadInitialView() {
+            if (AppState.role === 'Admin') switchView('admin');
+            else if (AppState.role === 'Staff') switchView('kitchen');
+            else switchView('menu');
         }
 
         async function loadView(viewId) {
             const content = document.getElementById('mainContent');
-            content.innerHTML = '<div class="text-center py-8"><div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-orange-200 border-t-orange-500"></div><p class="mt-2">กำลังโหลด...</p></div>';
+            content.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-orange-200 border-t-orange-500"></div>
+                    <p class="mt-2 text-gray-600">กำลังโหลด...</p>
+                </div>
+            `;
             
             switch(viewId) {
-                case 'menu':
-                    await loadMenuView();
-                    break;
-                case 'orders':
-                    await loadOrdersView();
-                    break;
-                case 'kitchen':
-                    await loadKitchenView();
-                    break;
-                case 'billing':
-                    await loadBillingView();
-                    break;
-                case 'admin':
-                    openAdminMenu();
-                    break;
+                case 'menu': await loadMenuView(); break;
+                case 'orders': await loadOrdersView(); break;
+                case 'kitchen': await loadKitchenView(); break;
+                case 'billing': await loadBillingView(); break;
+                case 'admin': await loadAdminMenuView(); break;
             }
         }
 
-        function loadInitialView() {
-            if (AppState.role === 'Staff' || AppState.role === 'Admin') {
-                switchView('kitchen');
-            } else {
-                switchView('menu');
+        // ========== POLLING SYSTEM ==========
+        let pollInterval = null;
+
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(checkForNewOrders, 30000);
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
             }
+        }
+
+        async function checkForNewOrders() {
+            const result = await callApi('checkNewOrders', { 
+                lastCheck: AppState.lastOrderCheck.toISOString() 
+            });
+            
+            if (result.success && result.data.hasNewOrders) {
+                const newOrders = result.data.newOrders.filter(o => 
+                    !AppState.displayedOrderIds.has(o.orderId)
+                );
+                
+                if (newOrders.length > 0) {
+                    newOrders.forEach(o => AppState.displayedOrderIds.add(o.orderId));
+                    playNotificationSound();
+                    showToast(`มีออเดอร์ใหม่ ${newOrders.length} รายการ`, 'info');
+                    
+                    if (AppState.currentView === 'kitchen') loadKitchenView();
+                    else if (AppState.currentView === 'billing') loadBillingView();
+                }
+            }
+            
+            AppState.lastOrderCheck = new Date();
         }
 
         // ========== MENU VIEW ==========
@@ -609,15 +583,11 @@
             // Group by category
             const categories = {};
             result.data.forEach(item => {
-                if (!categories[item.category]) {
-                    categories[item.category] = [];
-                }
+                if (!categories[item.category]) categories[item.category] = [];
                 categories[item.category].push(item);
             });
             
-            const container = document.getElementById('mainContent');
-            
-            container.innerHTML = `
+            document.getElementById('mainContent').innerHTML = `
                 <div class="space-y-6">
                     ${Object.entries(categories).map(([category, items]) => `
                         <div>
@@ -657,10 +627,11 @@
             
             if (AppState.role === 'Customer') {
                 document.getElementById('floatingCart').classList.remove('hidden');
-                updateCartDisplay();
             }
+            updateCartDisplay();
         }
 
+        // ========== ORDERS VIEW ==========
         async function loadOrdersView() {
             const result = await callApi('getMyOrders');
             
@@ -684,50 +655,46 @@
                 return;
             }
             
-            document.getElementById('mainContent').innerHTML = `
-                <div class="space-y-4">
-                    ${orders.map(order => `
-                        <div class="bg-white rounded-xl p-4 shadow-sm">
-                            <div class="flex justify-between items-start mb-2">
-                                <div>
-                                    <span class="font-bold">ออเดอร์ #${order.orderId.slice(-6)}</span>
-                                    <span class="text-sm text-gray-500 ml-2">โต๊ะ ${order.tableNo}</span>
-                                </div>
-                                <span class="px-2 py-1 rounded-full text-xs font-bold
-                                    ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : ''}
-                                    ${order.status === 'Cooking' ? 'bg-blue-100 text-blue-700' : ''}
-                                    ${order.status === 'Served' ? 'bg-green-100 text-green-700' : ''}
-                                    ${order.status === 'Paid' ? 'bg-gray-100 text-gray-700' : ''}">
-                                    ${order.status === 'Pending' ? 'รอปรุง' : ''}
-                                    ${order.status === 'Cooking' ? 'กำลังทำ' : ''}
-                                    ${order.status === 'Served' ? 'เสิร์ฟแล้ว' : ''}
-                                    ${order.status === 'Paid' ? 'ชำระเงินแล้ว' : ''}
-                                </span>
-                            </div>
-                            
-                            <div class="text-sm space-y-1 mb-2">
-                                ${order.items.map(item => `
-                                    <div class="flex justify-between">
-                                        <span>${item.name} x${item.quantity}</span>
-                                        <span>฿${item.price * item.quantity}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                            
-                            ${order.specialNotes ? `
-                                <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                                    <i class="fas fa-sticky-note mr-1"></i> ${order.specialNotes}
-                                </div>
-                            ` : ''}
-                            
-                            <div class="border-t mt-2 pt-2 flex justify-between font-bold">
-                                <span>รวม</span>
-                                <span class="text-orange-500">฿${order.totalPrice}</span>
-                            </div>
+            document.getElementById('mainContent').innerHTML = orders.map(order => `
+                <div class="bg-white rounded-xl p-4 shadow-sm mb-4">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <span class="font-bold">ออเดอร์ #${order.orderId.slice(-6)}</span>
+                            <span class="text-sm text-gray-500 ml-2">โต๊ะ ${order.tableNo}</span>
                         </div>
-                    `).join('')}
+                        <span class="px-2 py-1 rounded-full text-xs font-bold
+                            ${order.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' : ''}
+                            ${order.status === 'Cooking' ? 'bg-blue-100 text-blue-700' : ''}
+                            ${order.status === 'Served' ? 'bg-green-100 text-green-700' : ''}
+                            ${order.status === 'Paid' ? 'bg-gray-100 text-gray-700' : ''}">
+                            ${order.status === 'Pending' ? 'รอปรุง' : ''}
+                            ${order.status === 'Cooking' ? 'กำลังทำ' : ''}
+                            ${order.status === 'Served' ? 'เสิร์ฟแล้ว' : ''}
+                            ${order.status === 'Paid' ? 'ชำระแล้ว' : ''}
+                        </span>
+                    </div>
+                    
+                    <div class="text-sm space-y-1 mb-2">
+                        ${order.items.map(item => `
+                            <div class="flex justify-between">
+                                <span>${item.name} x${item.quantity}</span>
+                                <span>฿${item.price * item.quantity}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    ${order.specialNotes ? `
+                        <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                            <i class="fas fa-sticky-note mr-1"></i> ${order.specialNotes}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="border-t mt-2 pt-2 flex justify-between font-bold">
+                        <span>รวม</span>
+                        <span class="text-orange-500">฿${order.totalPrice}</span>
+                    </div>
                 </div>
-            `;
+            `).join('');
         }
 
         // ========== KITCHEN VIEW ==========
@@ -740,22 +707,13 @@
             }
             
             AppState.orders = result.data;
+            result.data.forEach(o => AppState.displayedOrderIds.add(o.orderId));
             
-            // Store order IDs for notification
-            result.data.forEach(order => {
-                AppState.displayedOrderIds.add(order.orderId);
-            });
-            
-            const grouped = {
-                'Pending': result.data.filter(o => o.status === 'Pending'),
-                'Cooking': result.data.filter(o => o.status === 'Cooking'),
-                'Served': result.data.filter(o => o.status === 'Served')
-            };
-            
-            const container = document.getElementById('mainContent');
+            const groups = { Pending: [], Cooking: [], Served: [] };
+            result.data.forEach(o => groups[o.status].push(o));
             
             if (result.data.length === 0) {
-                container.innerHTML = `
+                document.getElementById('mainContent').innerHTML = `
                     <div class="text-center py-8">
                         <i class="fas fa-check-circle text-5xl text-green-300 mb-3"></i>
                         <p class="text-gray-500">ไม่มีออเดอร์ที่กำลังดำเนินการ</p>
@@ -764,12 +722,12 @@
                 return;
             }
             
-            container.innerHTML = `
+            document.getElementById('mainContent').innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    ${Object.entries(grouped).map(([status, items]) => `
+                    ${Object.entries(groups).map(([status, items]) => `
                         <div class="bg-gray-50 rounded-xl p-4">
                             <h3 class="font-bold text-lg mb-3 flex items-center">
-                                <span class="w-3 h-3 rounded-full mr-2
+                                <span class="w-3 h-3 rounded-full mr-2 
                                     ${status === 'Pending' ? 'bg-yellow-500 animate-pulse' : ''}
                                     ${status === 'Cooking' ? 'bg-blue-500' : ''}
                                     ${status === 'Served' ? 'bg-green-500' : ''}">
@@ -834,6 +792,7 @@
             `;
         }
 
+        // ========== BILLING VIEW ==========
         async function loadBillingView() {
             const result = await callApi('getActiveOrders');
             
@@ -844,10 +803,8 @@
             
             const paidOrders = result.data.filter(o => o.status === 'Served');
             
-            const container = document.getElementById('mainContent');
-            
             if (paidOrders.length === 0) {
-                container.innerHTML = `
+                document.getElementById('mainContent').innerHTML = `
                     <div class="text-center py-8">
                         <i class="fas fa-receipt text-5xl text-gray-300 mb-3"></i>
                         <p class="text-gray-500">ไม่มีออเดอร์ที่รอคิดเงิน</p>
@@ -856,41 +813,246 @@
                 return;
             }
             
-            container.innerHTML = `
-                <div class="space-y-4">
-                    <h2 class="text-xl font-bold">รอคิดเงิน</h2>
-                    <div class="space-y-3">
-                        ${paidOrders.map(order => `
-                            <div class="bg-white rounded-xl p-4 shadow-sm">
-                                <div class="flex justify-between items-center mb-2">
-                                    <span class="font-bold text-lg">โต๊ะ ${order.tableNo}</span>
-                                    <span class="text-sm text-gray-500">
-                                        ${new Date(order.timestamp).toLocaleTimeString('th-TH')}
-                                    </span>
+            document.getElementById('mainContent').innerHTML = `
+                <h2 class="text-xl font-bold mb-4">รอคิดเงิน</h2>
+                ${paidOrders.map(order => `
+                    <div class="bg-white rounded-xl p-4 shadow-sm mb-3">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-bold text-lg">โต๊ะ ${order.tableNo}</span>
+                            <span class="text-sm text-gray-500">
+                                ${new Date(order.timestamp).toLocaleTimeString('th-TH')}
+                            </span>
+                        </div>
+                        <div class="text-sm mb-3">
+                            ${order.items.map(item => `
+                                <div class="flex justify-between">
+                                    <span>${item.name} x${item.quantity}</span>
+                                    <span>฿${item.price * item.quantity}</span>
                                 </div>
-                                <div class="text-sm mb-3">
-                                    ${order.items.map(item => `
-                                        <div class="flex justify-between">
-                                            <span>${item.name} x${item.quantity}</span>
-                                            <span>฿${item.price * item.quantity}</span>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                                <div class="border-t pt-3">
-                                    <div class="flex justify-between font-bold text-lg mb-3">
-                                        <span>รวม</span>
-                                        <span class="text-orange-500">฿${order.totalPrice}</span>
-                                    </div>
-                                    <button class="w-full bg-orange-500 text-white py-3 rounded-lg font-bold hover:bg-orange-600"
-                                            onclick="showPaymentModal('${order.orderId}', ${order.totalPrice})">
-                                        คิดเงิน
-                                    </button>
-                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="border-t pt-3">
+                            <div class="flex justify-between font-bold text-lg mb-3">
+                                <span>รวม</span>
+                                <span class="text-orange-500">฿${order.totalPrice}</span>
                             </div>
-                        `).join('')}
+                            <button class="w-full bg-orange-500 text-white py-3 rounded-lg font-bold hover:bg-orange-600"
+                                    onclick="showPaymentModal('${order.orderId}', ${order.totalPrice})">
+                                คิดเงิน
+                            </button>
+                        </div>
                     </div>
+                `).join('')}`;
+        }
+
+        // ========== ADMIN MENU MANAGEMENT ==========
+        async function loadAdminMenuView() {
+            const result = await callApi('manageMenu', { action: 'getAll' });
+            
+            if (!result.success) {
+                document.getElementById('mainContent').innerHTML = '<p class="text-center text-red-500">ไม่สามารถโหลดเมนูได้</p>';
+                return;
+            }
+            
+            document.getElementById('mainContent').innerHTML = `
+                <div class="bg-white rounded-xl p-4 shadow-sm">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold">จัดการเมนู</h2>
+                        <button onclick="showAddMenuForm()" 
+                                class="bg-green-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-600">
+                            <i class="fas fa-plus mr-1"></i> เพิ่มเมนู
+                        </button>
+                    </div>
+                    <div class="space-y-2" id="adminMenuList"></div>
                 </div>
             `;
+            
+            renderAdminMenu(result.data);
+        }
+
+        function renderAdminMenu(items) {
+            const container = document.getElementById('adminMenuList');
+            container.innerHTML = items.map(item => `
+                <div class="flex items-center justify-between p-3 border rounded-lg admin-menu-item">
+                    <div class="flex items-center space-x-3">
+                        <img src="${item.imageUrl || 'https://via.placeholder.com/50'}" 
+                             class="w-10 h-10 object-cover rounded-lg" 
+                             onerror="this.src='https://via.placeholder.com/50'">
+                        <div>
+                            <span class="font-bold">${item.name}</span>
+                            <span class="ml-2 text-sm text-gray-500">${item.category}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <input type="number" 
+                               value="${item.price}" 
+                               class="w-20 p-1 border rounded text-right"
+                               onchange="updateMenuPrice('${item.id}', this.value)">
+                        <button class="px-3 py-1 rounded-full text-sm font-medium 
+                                ${item.status === 'มี' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}"
+                                onclick="toggleMenuStatus('${item.id}', '${item.status === 'มี' ? 'หมด' : 'มี'}')">
+                            ${item.status === 'มี' ? 'พร้อมขาย' : 'หมด'}
+                        </button>
+                        <button class="text-red-500 hover:text-red-700" 
+                                onclick="deleteMenuItem('${item.id}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showAddMenuForm() {
+            const modal = document.createElement('div');
+            modal.className = 'modal active';
+            modal.innerHTML = `
+                <div class="modal-content max-w-md">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold">เพิ่มเมนูใหม่</h3>
+                        <button onclick="this.closest('.modal').remove()" class="text-gray-500">
+                            <i class="fas fa-times text-2xl"></i>
+                        </button>
+                    </div>
+                    
+                    <form id="addMenuForm" class="space-y-4" onsubmit="event.preventDefault(); addNewMenu();">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">ชื่อเมนู <span class="text-red-500">*</span></label>
+                            <input type="text" id="menuName" required 
+                                   class="w-full p-2 border rounded-lg">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-1">หมวดหมู่ <span class="text-red-500">*</span></label>
+                            <select id="menuCategory" required class="w-full p-2 border rounded-lg">
+                                <option value="">เลือกหมวดหมู่</option>
+                                <option value="น้ำใส">น้ำใส</option>
+                                <option value="ต้มยำ">ต้มยำ</option>
+                                <option value="แห้ง">แห้ง</option>
+                                <option value="เย็นตาโฟ">เย็นตาโฟ</option>
+                                <option value="เกาเหลา">เกาเหลา</option>
+                                <option value="พิเศษ">พิเศษ</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-1">ราคา <span class="text-red-500">*</span></label>
+                            <input type="number" id="menuPrice" required min="0" step="1"
+                                   class="w-full p-2 border rounded-lg">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium mb-1">รูปภาพ URL</label>
+                            <input type="url" id="menuImage" 
+                                   class="w-full p-2 border rounded-lg"
+                                   placeholder="https://...">
+                        </div>
+                        
+                        <div class="flex space-x-2 pt-4">
+                            <button type="submit" 
+                                    class="flex-1 bg-green-500 text-white py-2 rounded-lg font-bold hover:bg-green-600">
+                                <i class="fas fa-save mr-1"></i> บันทึก
+                            </button>
+                            <button type="button" 
+                                    onclick="this.closest('.modal').remove()"
+                                    class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-bold hover:bg-gray-300">
+                                ยกเลิก
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+        }
+
+        async function addNewMenu() {
+            const name = document.getElementById('menuName').value.trim();
+            const category = document.getElementById('menuCategory').value;
+            const price = parseInt(document.getElementById('menuPrice').value);
+            const imageUrl = document.getElementById('menuImage').value.trim();
+            
+            if (!name || !category || !price) {
+                showToast('กรุณากรอกข้อมูลให้ครบ', 'error');
+                return;
+            }
+            
+            const result = await callApi('manageMenu', {
+                action: 'add',
+                menuData: {
+                    name: name,
+                    category: category,
+                    price: price,
+                    imageUrl: imageUrl,
+                    status: 'มี'
+                }
+            });
+            
+            if (result.success) {
+                showToast('เพิ่มเมนูเรียบร้อย');
+                document.querySelector('.modal.active')?.remove();
+                loadAdminMenuView();
+                if (AppState.currentView === 'menu') loadMenuView();
+            }
+        }
+
+        async function toggleMenuStatus(id, newStatus) {
+            const result = await callApi('manageMenu', {
+                action: 'toggleStatus',
+                menuData: { itemId: id, status: newStatus }
+            });
+            
+            if (result.success) {
+                showToast('อัปเดตสถานะเรียบร้อย');
+                loadAdminMenuView();
+                if (AppState.currentView === 'menu') loadMenuView();
+            }
+        }
+
+        async function updateMenuPrice(id, newPrice) {
+            const price = parseInt(newPrice);
+            if (isNaN(price) || price < 0) {
+                showToast('ราคาไม่ถูกต้อง', 'error');
+                return;
+            }
+            
+            const result = await callApi('manageMenu', {
+                action: 'updatePrice',
+                menuData: { id: id, price: price }
+            });
+            
+            if (result.success) {
+                showToast('อัปเดตราคาเรียบร้อย');
+                if (AppState.currentView === 'menu') loadMenuView();
+            }
+        }
+
+        async function deleteMenuItem(id) {
+            if (!confirm('แน่ใจหรือไม่ที่จะลบเมนูนี้?')) return;
+            
+            const result = await callApi('manageMenu', {
+                action: 'delete',
+                menuData: { deleteId: id }
+            });
+            
+            if (result.success) {
+                showToast('ลบเมนูเรียบร้อย');
+                loadAdminMenuView();
+                if (AppState.currentView === 'menu') loadMenuView();
+            }
+        }
+
+        // ========== ORDER MANAGEMENT ==========
+        async function updateOrderStatus(orderId, newStatus) {
+            const result = await callApi('updateOrderStatus', { orderId, newStatus });
+            
+            if (result.success) {
+                showToast('อัปเดตสถานะเรียบร้อย');
+                loadKitchenView();
+                
+                if (newStatus === 'Served') {
+                    playNotificationSound();
+                }
+            }
         }
 
         // ========== CART MANAGEMENT ==========
@@ -919,14 +1081,14 @@
             document.getElementById('cartTotal').textContent = `฿${total}`;
             document.getElementById('cartCount').textContent = `${count} รายการ`;
             
+            const badge = document.getElementById('cartBadge');
             if (count > 0) {
-                document.getElementById('cartBadge').classList.remove('hidden');
-                document.getElementById('cartBadge').textContent = count;
+                badge.classList.remove('hidden');
+                badge.textContent = count;
             } else {
-                document.getElementById('cartBadge').classList.add('hidden');
+                badge.classList.add('hidden');
             }
             
-            // Update cart modal if open
             updateCartModal();
         }
 
@@ -936,6 +1098,7 @@
             
             if (AppState.cart.length === 0) {
                 cartItems.innerHTML = '<p class="text-center text-gray-500 py-4">ยังไม่มีสินค้าในตะกร้า</p>';
+                document.getElementById('cartTotalModal').textContent = '0 บาท';
                 return;
             }
             
@@ -963,7 +1126,8 @@
                 </div>
             `).join('');
             
-            document.getElementById('cartTotalModal').textContent = `฿${AppState.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)}`;
+            const total = AppState.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            document.getElementById('cartTotalModal').textContent = `฿${total}`;
         }
 
         function updateCartItemQuantity(cartId, change) {
@@ -983,23 +1147,21 @@
             showToast('ลบรายการออกจากตะกร้า');
         }
 
-        // ========== ORDER MANAGEMENT ==========
         async function createOrder() {
             if (AppState.cart.length === 0) {
                 showToast('กรุณาเลือกรายการอาหาร', 'error');
                 return;
             }
             
-            const tableNo = AppState.tableNo || 'Takeaway';
+            const tableNo = document.getElementById('tableInput')?.value || AppState.tableNo || 'Takeaway';
             
-            if (!tableNo && AppState.role === 'Customer') {
-                const input = prompt('กรุณากรอกเลขโต๊ะ (หรือกด Enter เพื่อรับกลับบ้าน)', '');
-                if (input === null) return;
-                AppState.tableNo = input || 'Takeaway';
+            if (!tableNo) {
+                showToast('กรุณากรอกเลขโต๊ะ', 'error');
+                return;
             }
             
             const orderData = {
-                tableNo: AppState.tableNo || 'Takeaway',
+                tableNo: tableNo,
                 items: AppState.cart.map(item => ({
                     id: item.id,
                     name: item.name,
@@ -1023,281 +1185,14 @@
                     AppState.displayedOrderIds.add(result.data.orderId);
                 }
                 
-                // Switch to orders view
                 setTimeout(() => switchView('orders'), 1500);
             } else {
                 showToast(result.error || 'เกิดข้อผิดพลาด', 'error');
             }
         }
 
-        async function updateOrderStatus(orderId, newStatus) {
-            const result = await callApi('updateOrderStatus', { orderId, newStatus });
-            
-            if (result.success) {
-                showToast('อัปเดตสถานะเรียบร้อย');
-                loadKitchenView();
-                
-                if (newStatus === 'Served') {
-                    playNotificationSound();
-                }
-            }
-        }
-
-        // ========== REAL-TIME POLLING ==========
-        let pollingInterval = null;
-
-        function startPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            
-            pollingInterval = setInterval(async () => {
-                await checkForNewOrders();
-            }, 30000);
-        }
-
-        function stopPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-            }
-        }
-
-        async function checkForNewOrders() {
-            try {
-                const result = await callApi('checkNewOrders', { 
-                    lastCheck: AppState.lastOrderCheck.toISOString() 
-                });
-                
-                if (result.success && result.data.hasNewOrders) {
-                    const trulyNewOrders = result.data.newOrders.filter(order => 
-                        !AppState.displayedOrderIds.has(order.orderId)
-                    );
-                    
-                    if (trulyNewOrders.length > 0) {
-                        trulyNewOrders.forEach(order => {
-                            AppState.displayedOrderIds.add(order.orderId);
-                        });
-                        
-                        playNotificationSound();
-                        showToast(`มีออเดอร์ใหม่ ${trulyNewOrders.length} รายการ`, 'info');
-                        
-                        if (AppState.currentView === 'kitchen') {
-                            loadKitchenView();
-                        } else if (AppState.currentView === 'billing') {
-                            loadBillingView();
-                        }
-                    }
-                }
-                
-                AppState.lastOrderCheck = new Date();
-                
-            } catch (error) {
-                console.error('Polling error:', error);
-            }
-        }
-
-        function playNotificationSound() {
-            const sound = document.getElementById('notificationSound');
-            if (sound) {
-                sound.play().catch(e => {
-                    console.log('Cannot play sound automatically');
-                    if (navigator.vibrate) {
-                        navigator.vibrate(200);
-                    }
-                });
-            }
-        }
-
-        // ========== ADMIN FUNCTIONS ==========
-        function openAdminMenu() {
-            if (AppState.role !== 'Admin') {
-                showToast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error');
-                return;
-            }
-            
-            document.getElementById('adminModal').classList.add('active');
-            loadMenuItems();
-        }
-
-        function closeAdminModal() {
-            document.getElementById('adminModal').classList.remove('active');
-        }
-
-        function switchAdminTab(tab) {
-            document.querySelectorAll('.tab-content').forEach(el => {
-                el.classList.add('hidden');
-            });
-            
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-            
-            switch(tab) {
-                case 'list':
-                    document.getElementById('menuListTab').classList.remove('hidden');
-                    loadMenuItems();
-                    break;
-                case 'add':
-                    document.getElementById('addMenuTab').classList.remove('hidden');
-                    break;
-                case 'categories':
-                    document.getElementById('categoriesTab').classList.remove('hidden');
-                    loadCategories();
-                    break;
-            }
-        }
-
-        async function loadMenuItems() {
-            const result = await callApi('manageMenu', { 
-                action: 'getAll' 
-            });
-            
-            if (result.success) {
-                const menuList = document.getElementById('menuItemsList');
-                menuList.innerHTML = result.data.map(item => `
-                    <div class="bg-white p-3 rounded-lg shadow-sm flex items-center space-x-3 admin-menu-item">
-                        <img src="${item.imageUrl || 'https://via.placeholder.com/50'}" 
-                             class="w-12 h-12 object-cover rounded-lg" 
-                             alt="${item.name}"
-                             onerror="this.src='https://via.placeholder.com/50'">
-                        <div class="flex-1">
-                            <h4 class="font-bold">${item.name}</h4>
-                            <p class="text-sm text-gray-600">${item.category} - ฿${item.price}</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <button onclick="toggleMenuItem('${item.id}', '${item.status === 'มี' ? 'หมด' : 'มี'}')" 
-                                    class="px-3 py-1 rounded-full text-sm font-medium
-                                           ${item.status === 'มี' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
-                                ${item.status === 'มี' ? 'พร้อมขาย' : 'หมด'}
-                            </button>
-                            <button onclick="editMenuItem('${item.id}')" 
-                                    class="text-blue-500 hover:text-blue-700 p-2">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button onclick="deleteMenuItem('${item.id}')" 
-                                    class="text-red-500 hover:text-red-700 p-2">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                `).join('');
-            }
-        }
-
-        async function toggleMenuItem(id, newStatus) {
-            const result = await callApi('manageMenu', {
-                action: 'toggle',
-                menuData: {
-                    itemId: id,
-                    status: newStatus
-                }
-            });
-            
-            if (result.success) {
-                showToast(result.data.message);
-                loadMenuItems();
-                if (AppState.currentView === 'menu') {
-                    loadMenuView();
-                }
-            }
-        }
-
-        async function addNewMenu() {
-            const name = document.getElementById('menuName').value.trim();
-            const category = document.getElementById('menuCategory').value;
-            const price = parseInt(document.getElementById('menuPrice').value);
-            const imageUrl = document.getElementById('menuImage').value.trim();
-            
-            if (!name || !category || !price) {
-                showToast('กรุณากรอกข้อมูลให้ครบ', 'error');
-                return;
-            }
-            
-            const newItem = {
-                name: name,
-                category: category,
-                price: price,
-                imageUrl: imageUrl,
-                status: 'มี'
-            };
-            
-            const result = await callApi('manageMenu', {
-                action: 'add',
-                menuData: newItem
-            });
-            
-            if (result.success) {
-                showToast('เพิ่มเมนูเรียบร้อย');
-                document.getElementById('addMenuForm').reset();
-                switchAdminTab('list');
-                if (AppState.currentView === 'menu') {
-                    loadMenuView();
-                }
-            }
-        }
-
-        async function deleteMenuItem(id) {
-            if (!confirm('แน่ใจหรือไม่ที่จะลบเมนูนี้?')) {
-                return;
-            }
-            
-            const result = await callApi('manageMenu', {
-                action: 'delete',
-                menuData: { deleteId: id }
-            });
-            
-            if (result.success) {
-                showToast('ลบเมนูเรียบร้อย');
-                loadMenuItems();
-                if (AppState.currentView === 'menu') {
-                    loadMenuView();
-                }
-            }
-        }
-
-        function filterMenu() {
-            const searchTerm = document.getElementById('searchMenu').value.toLowerCase();
-            const items = document.querySelectorAll('#menuItemsList > div');
-            
-            items.forEach(item => {
-                const name = item.querySelector('h4').textContent.toLowerCase();
-                item.style.display = name.includes(searchTerm) ? 'flex' : 'none';
-            });
-        }
-
-        function loadCategories() {
-            const categories = ['น้ำใส', 'ต้มยำ', 'แห้ง', 'เย็นตาโฟ', 'เกาเหลา', 'พิเศษ'];
-            const list = document.getElementById('categoriesList');
-            
-            list.innerHTML = categories.map(cat => `
-                <div class="bg-white p-3 rounded-lg shadow-sm flex items-center justify-between">
-                    <span>${cat}</span>
-                    <div>
-                        <button class="text-blue-500 hover:text-blue-700 mr-2" onclick="editCategory('${cat}')">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="text-red-500 hover:text-red-700" onclick="deleteCategory('${cat}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function addCategory() {
-            const newCat = document.getElementById('newCategory').value.trim();
-            if (newCat) {
-                showToast(`เพิ่มหมวดหมู่ "${newCat}" เรียบร้อย`);
-                document.getElementById('newCategory').value = '';
-                loadCategories();
-            }
-        }
-
-        // ========== MODAL FUNCTIONS ==========
-        function showItemModal(item) {
+        // ========== ITEM MODAL ==========
+        window.showItemModal = function(item) {
             const modal = document.createElement('div');
             modal.className = 'modal active';
             modal.id = 'itemModal';
@@ -1343,7 +1238,7 @@
                         <div>
                             <label class="block text-sm font-medium mb-2">หมายเหตุเพิ่มเติม</label>
                             <textarea id="specialNote" class="w-full p-2 border rounded-lg" 
-                                      placeholder="เช่น ไม่ใส่ผัก, เพิ่มไข่, ไม่ใส่เครื่องใน"></textarea>
+                                      placeholder="เช่น ไม่ใส่ผัก, เพิ่มไข่"></textarea>
                         </div>
                         
                         <div class="flex items-center justify-between pt-4">
@@ -1362,25 +1257,25 @@
             `;
             
             document.body.appendChild(modal);
-        }
+        };
 
         let currentQuantity = 1;
-        function updateQuantity(change) {
+        window.updateQuantity = function(change) {
             currentQuantity += change;
             if (currentQuantity < 1) currentQuantity = 1;
             if (currentQuantity > 10) currentQuantity = 10;
             document.getElementById('quantity').textContent = currentQuantity;
-        }
+        };
 
-        function selectSpicy(btn, level) {
+        window.selectSpicy = function(btn, level) {
             document.querySelectorAll('.spicy-btn').forEach(b => {
                 b.classList.remove('bg-orange-500', 'text-white');
             });
             btn.classList.add('bg-orange-500', 'text-white');
             document.getElementById('spicyLevel').value = level;
-        }
+        };
 
-        function addToCartWithOptions(item) {
+        window.addToCartWithOptions = function(item) {
             const modal = document.getElementById('itemModal');
             const noodle = modal.querySelector('#noodleType')?.value || 'เส้นเล็ก';
             const spicy = document.getElementById('spicyLevel')?.value || 'ไม่เผ็ด';
@@ -1402,20 +1297,10 @@
             showToast('เพิ่ม ' + item.name + ' ลงตะกร้าแล้ว');
             modal.remove();
             currentQuantity = 1;
-        }
+        };
 
-        function viewCart() {
-            document.getElementById('cartModal').classList.add('active');
-            updateCartModal();
-        }
-
-        function closeModal() {
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.classList.remove('active');
-            });
-        }
-
-        function showPaymentModal(orderId, total) {
+        // ========== PAYMENT MODAL ==========
+        window.showPaymentModal = function(orderId, total) {
             const modal = document.createElement('div');
             modal.className = 'modal active';
             modal.innerHTML = `
@@ -1453,16 +1338,16 @@
             
             document.body.appendChild(modal);
             setTimeout(() => modal.querySelector('#paymentAmount').focus(), 100);
-        }
+        };
 
-        function calculateChange(total) {
+        window.calculateChange = function(total) {
             const payment = parseFloat(document.getElementById('paymentAmount').value) || 0;
             const change = payment - total;
             document.getElementById('changeDisplay').innerHTML = 
                 `เงินทอน: <span class="font-bold text-green-600">฿${change > 0 ? change.toFixed(2) : 0}</span> บาท`;
-        }
+        };
 
-        async function processPayment(orderId, total) {
+        window.processPayment = async function(orderId, total) {
             const payment = parseFloat(document.getElementById('paymentAmount').value);
             
             if (!payment || payment < total) {
@@ -1494,9 +1379,10 @@
                     loadBillingView();
                 }
             }
-        }
+        };
 
-        function showOrderDetail(orderId) {
+        // ========== ORDER DETAIL ==========
+        window.showOrderDetail = function(orderId) {
             const order = AppState.orders.find(o => o.orderId === orderId);
             if (!order) return;
             
@@ -1562,52 +1448,48 @@
             `;
             
             document.body.appendChild(modal);
-        }
+        };
 
-        // ========== UTILITIES ==========
-        function showToast(message, type = 'success') {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.classList.remove('hidden');
-            
-            if (type === 'error') {
-                toast.style.backgroundColor = '#dc2626';
-            } else if (type === 'success') {
-                toast.style.backgroundColor = '#1f2937';
-            } else if (type === 'info') {
-                toast.style.backgroundColor = '#3b82f6';
-            }
-            
-            setTimeout(() => {
-                toast.classList.add('hidden');
-                toast.style.backgroundColor = '#1f2937';
-            }, 3000);
-        }
+        // ========== MODAL CONTROLS ==========
+        window.viewCart = function() {
+            document.getElementById('cartModal').classList.add('active');
+            updateCartModal();
+        };
 
-        function editMenuItem(id) {
-            showToast('ฟังก์ชั่นแก้ไขกำลังพัฒนา', 'info');
-        }
-
-        function editCategory(name) {
-            showToast(`แก้ไขหมวดหมู่ "${name}"`, 'info');
-        }
-
-        function deleteCategory(name) {
-            if (confirm(`ลบหมวดหมู่ "${name}"?`)) {
-                showToast(`ลบหมวดหมู่ "${name}" เรียบร้อย`);
-            }
-        }
+        window.closeModal = function() {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.classList.remove('active');
+            });
+        };
 
         // ========== EVENT LISTENERS ==========
         document.getElementById('viewCartBtn').addEventListener('click', viewCart);
         
         document.getElementById('menuToggle').addEventListener('click', () => {
             if (AppState.role === 'Admin') {
-                openAdminMenu();
+                loadAdminMenuView();
             } else {
                 showToast('เมนูสำหรับผู้ดูแลระบบ', 'info');
             }
         });
+
+        // Timeout for loading
+        setTimeout(() => {
+            const loading = document.getElementById('loading');
+            if (loading && loading.style.display !== 'none') {
+                loading.innerHTML = `
+                    <div class="text-center p-8 max-w-sm mx-auto">
+                        <i class="fas fa-exclamation-triangle text-4xl text-yellow-500 mb-4"></i>
+                        <p class="text-gray-700 font-bold mb-2">การเชื่อมต่อใช้เวลานาน</p>
+                        <p class="text-sm text-gray-500 mb-4">กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</p>
+                        <button onclick="location.reload()" 
+                                class="w-full bg-orange-500 text-white px-4 py-2 rounded-full">
+                            ลองใหม่อีกครั้ง
+                        </button>
+                    </div>
+                `;
+            }
+        }, 15000);
 
         // Initialize
         document.addEventListener('DOMContentLoaded', initializeLiff);
