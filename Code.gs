@@ -1,113 +1,106 @@
 // ============================================
-// NOODLE SHOP MANAGEMENT SYSTEM - COMPLETE VERSION
+// NOODLE SHOP MANAGEMENT SYSTEM
+// PRODUCTION READY - VERSION 5.0.0
 // LINE LIFF + Google Apps Script + Google Sheets
-// Version: 3.0.0 (Production Ready)
 // ============================================
 
 // ========== CONFIGURATION ==========
 function getEnvironment() {
   const url = ScriptApp.getService().getUrl();
-  if (url.includes('dev') || url.includes('test')) {
-    return 'DEV';
-  }
+  if (url.includes('dev') || url.includes('test')) return 'DEV';
   const prodUrl = PropertiesService.getScriptProperties().getProperty('PROD_URL');
-  if (prodUrl && url === prodUrl) {
-    return 'PROD';
-  }
-  return 'DEV';
+  return (prodUrl && url === prodUrl) ? 'PROD' : 'DEV';
 }
 
 function getSecret(key) {
   const env = getEnvironment();
   const secretKey = `${env}_${key}`;
-  const value = PropertiesService.getScriptProperties().getProperty(secretKey);
-  if (!value) {
-    const defaultKey = key;
-    return PropertiesService.getScriptProperties().getProperty(defaultKey);
-  }
+  let value = PropertiesService.getScriptProperties().getProperty(secretKey);
+  if (!value) value = PropertiesService.getScriptProperties().getProperty(key);
   return value;
 }
 
 // ========== SHEETS INITIALIZATION ==========
 function getSheet(sheetName) {
-  const spreadsheetId = getSecret('SPREADSHEET_ID');
-  if (!spreadsheetId) {
-    throw new Error('ไม่พบ SPREADSHEET_ID กรุณาตั้งค่าใน Script Properties');
-  }
+  const spreadsheetId = "1g2rOFvKwPOXWSCnl5Pb_7V21mhrYIX6w_E-L2XhlXMY";
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    throw new Error(`ไม่พบชีต "${sheetName}" กรุณารัน initialSetup ก่อน`);
-  }
+  if (!sheet) throw new Error(`ไม่พบชีต "${sheetName}" กรุณารัน initialSetup`);
   return sheet;
 }
 
-// ========== AUTH MIDDLEWARE ==========
+// ========== AUTH MIDDLEWARE with AUTO-ONBOARDING ==========
 function verifyAuth(userId, requiredRole = null) {
-  if (!userId) {
-    throw new Error('ไม่พบ User ID กรุณาเข้าสู่ระบบผ่าน LINE');
-  }
-  
+  if (!userId) throw new Error('ไม่พบ User ID กรุณาเข้าสู่ระบบผ่าน LINE');
+
   const userSheet = getSheet('Users');
-  const userData = userSheet.getDataRange().getValues();
-  const headers = userData.shift();
-  const userIdCol = headers.indexOf('userId');
-  const roleCol = headers.indexOf('role');
-  
+  const data = userSheet.getDataRange().getValues();
+  const headers = data.shift();
+  const userIdIdx = headers.indexOf('userId');
+  const roleIdx = headers.indexOf('role');
+  const nameIdx = headers.indexOf('name');
+  const timestampIdx = headers.indexOf('timestamp');
+
   let userRole = null;
-  for (const row of userData) {
-    if (row[userIdCol] === userId) {
-      userRole = row[roleCol];
+  let userExists = false;
+  let userRow = null;
+
+  for (const row of data) {
+    if (row[userIdIdx] === userId) {
+      userRole = row[roleIdx];
+      userExists = true;
+      userRow = row;
       break;
     }
   }
-  
-  if (!userRole) {
-    if (requiredRole === 'Customer' || !requiredRole) {
-      return 'Customer';
-    }
-    throw new Error('ไม่มีสิทธิ์ใช้งาน กรุณาติดต่อผู้ดูแลระบบ');
+
+  // ----- AUTO-ONBOARDING -----
+  if (!userExists) {
+    const displayName = 'ลูกค้าใหม่'; // สามารถรับจาก frontend ได้
+    const now = new Date();
+
+    const newRow = [];
+    headers.forEach((h, i) => {
+      if (h === 'userId') newRow[i] = userId;
+      else if (h === 'name') newRow[i] = displayName;
+      else if (h === 'role') newRow[i] = 'Customer';
+      else if (h === 'timestamp') newRow[i] = now;
+      else newRow[i] = '';
+    });
+    userSheet.appendRow(newRow);
+
+    userRole = 'Customer';
+    console.log(`✅ New user auto-registered: ${userId}`);
   }
-  
+
   if (requiredRole) {
-    const roleHierarchy = {
-      'Admin': 3,
-      'Staff': 2,
-      'Customer': 1
-    };
-    
-    if (roleHierarchy[userRole] < roleHierarchy[requiredRole]) {
+    const hierarchy = { Admin:3, Staff:2, Customer:1 };
+    if (hierarchy[userRole] < hierarchy[requiredRole])
       throw new Error(`ต้องการสิทธิ์ ${requiredRole} แต่คุณมีสิทธิ์ ${userRole}`);
-    }
   }
-  
+
   return userRole;
 }
 
 // ========== MAIN ROUTER ==========
-function doPost(e) {
-  return handleRequest(e, 'POST');
-}
-
-function doGet(e) {
-  return handleRequest(e, 'GET');
-}
+function doPost(e) { return handleRequest(e, 'POST'); }
+function doGet(e) { return handleRequest(e, 'GET'); }
 
 function handleRequest(e, method) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type'
   };
-  
+
   try {
     const params = e.parameter || {};
     const postData = e.postData ? JSON.parse(e.postData.contents) : {};
     const action = params.action || postData.action;
     const userId = params.userId || postData.userId;
-    
+
     logActivity(action, userId, { method });
-    
+
     let result;
     switch (action) {
       // Public APIs
@@ -166,7 +159,7 @@ function handleRequest(e, method) {
       default:
         throw new Error(`ไม่พบ action: ${action}`);
     }
-    
+
     return ContentService
       .createTextOutput(JSON.stringify({ success: true, data: result }))
       .setMimeType(ContentService.MimeType.JSON)
@@ -175,13 +168,8 @@ function handleRequest(e, method) {
   } catch (error) {
     console.error('API Error:', error);
     logError(error, e.parameter);
-    
     return ContentService
-      .createTextOutput(JSON.stringify({ 
-        success: false, 
-        error: error.message,
-        env: getEnvironment()
-      }))
+      .createTextOutput(JSON.stringify({ success: false, error: error.message, env: getEnvironment() }))
       .setMimeType(ContentService.MimeType.JSON)
       .setHeaders(headers);
   }
@@ -191,86 +179,60 @@ function handleRequest(e, method) {
 function getPublicConfig() {
   return {
     environment: getEnvironment(),
-    liffId: getSecret('LIFF_ID'),
+    liffId: "2008933274-bXEJEVx2",
     shopName: getConfigValue('shopName') || 'ร้านก๋วยเตี๋ยว',
-    version: '3.0.0',
+    version: '5.0.0',
     businessHours: getConfigValue('businessHours') || '10:00-22:00'
   };
 }
 
 function getConfigValue(key) {
   try {
-    const configSheet = getSheet('Config');
-    const data = configSheet.getDataRange().getValues();
+    const sheet = getSheet('Config');
+    const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === key) {
-        return data[i][1];
-      }
+      if (data[i][0] === key) return data[i][1];
     }
-  } catch (e) {
-    return null;
-  }
+  } catch (e) {}
   return null;
 }
 
-// ========== MENU MANAGEMENT ==========
+// ========== MENU ==========
 function getMenu() {
-  const menuSheet = getSheet('Menu');
-  const data = menuSheet.getDataRange().getValues();
+  const sheet = getSheet('Menu');
+  const data = sheet.getDataRange().getValues();
   const headers = data.shift();
-  
   return data.map(row => {
     const item = {};
-    headers.forEach((header, index) => {
-      if (header === 'price' && row[index]) {
-        item[header] = Number(row[index]);
-      } else {
-        item[header] = row[index];
-      }
+    headers.forEach((h, i) => {
+      if (h === 'price') item[h] = Number(row[i]);
+      else item[h] = row[i];
     });
-    
-    if (item.imageUrl && item.imageUrl.includes('drive.google.com')) {
+    if (item.imageUrl && item.imageUrl.includes('drive.google.com'))
       item.imageUrl = convertDriveLink(item.imageUrl);
-    }
-    
     return item;
   }).filter(item => item.status !== 'deleted' && item.status !== 'ซ่อน');
 }
 
-function convertDriveLink(driveUrl) {
-  const fileId = extractFileId(driveUrl);
-  if (fileId) {
-    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
-  }
-  return driveUrl;
+function convertDriveLink(url) {
+  const id = extractFileId(url);
+  return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w400` : url;
 }
 
 function extractFileId(url) {
-  const patterns = [
-    /\/d\/([a-zA-Z0-9_-]+)/,
-    /id=([a-zA-Z0-9_-]+)/
-  ];
-  
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
 }
 
-// ========== ORDER MANAGEMENT ==========
+// ========== ORDER ==========
 function createOrder(userId, data) {
   const { tableNo, items, totalPrice, specialNotes } = data;
+  if (!items?.length) throw new Error('กรุณาเลือกรายการอาหาร');
+
+  const sheet = getSheet('Orders');
+  const orderId = 'ORD-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2,5).toUpperCase();
   
-  if (!items || !items.length) {
-    throw new Error('กรุณาเลือกรายการอาหาร');
-  }
-  
-  const orderSheet = getSheet('Orders');
-  const orderId = 'ORD-' + new Date().getTime().toString(36).toUpperCase() + 
-                  Math.random().toString(36).substring(2, 5).toUpperCase();
-  
-  const orderData = {
+  const order = {
     orderId: orderId,
     userId: userId,
     tableNo: tableNo || 'Takeaway',
@@ -281,402 +243,319 @@ function createOrder(userId, data) {
     timestamp: new Date(),
     paymentStatus: 'Pending'
   };
-  
-  const headers = orderSheet.getRange(1, 1, 1, orderSheet.getLastColumn()).getValues()[0];
-  const newRow = headers.map(header => orderData[header] || '');
-  orderSheet.appendRow(newRow);
-  
-  notifyNewOrder(orderData);
-  
-  return { orderId: orderId, ...orderData };
+
+  const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
+  const newRow = headers.map(h => order[h] || '');
+  sheet.appendRow(newRow);
+
+  notifyNewOrder(order);
+  return { orderId: orderId, ...order };
 }
 
 function getActiveOrders() {
-  const orderSheet = getSheet('Orders');
-  const data = orderSheet.getDataRange().getValues();
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
   const headers = data.shift();
+  const active = ['Pending','Cooking','Served'];
   
-  const activeStatuses = ['Pending', 'Cooking', 'Served'];
-  
-  return data
-    .map(row => {
-      const order = {};
-      headers.forEach((header, index) => {
-        if (header === 'items' && row[index]) {
-          try {
-            order[header] = JSON.parse(row[index]);
-          } catch {
-            order[header] = row[index];
-          }
-        } else if (header === 'totalPrice') {
-          order[header] = Number(row[index]) || 0;
-        } else {
-          order[header] = row[index];
-        }
-      });
-      return order;
-    })
-    .filter(order => activeStatuses.includes(order.status))
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return data.map(row => {
+    const o = {};
+    headers.forEach((h,i) => {
+      if (h === 'items' && row[i]) {
+        try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
+      } else if (h === 'totalPrice') {
+        o[h] = Number(row[i]) || 0;
+      } else {
+        o[h] = row[i];
+      }
+    });
+    return o;
+  }).filter(o => active.includes(o.status))
+    .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
 function getUserOrders(userId) {
-  const orderSheet = getSheet('Orders');
-  const data = orderSheet.getDataRange().getValues();
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
   const headers = data.shift();
   
-  return data
-    .map(row => {
-      const order = {};
-      headers.forEach((header, index) => {
-        if (header === 'items' && row[index]) {
-          try {
-            order[header] = JSON.parse(row[index]);
-          } catch {
-            order[header] = row[index];
-          }
-        } else {
-          order[header] = row[index];
-        }
-      });
-      return order;
-    })
-    .filter(order => order.userId === userId)
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return data.map(row => {
+    const o = {};
+    headers.forEach((h,i) => {
+      if (h === 'items' && row[i]) {
+        try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
+      } else {
+        o[h] = row[i];
+      }
+    });
+    return o;
+  }).filter(o => o.userId === userId)
+    .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
-function updateOrderStatus(staffId, data) {
-  const { orderId, newStatus } = data;
-  
-  const orderSheet = getSheet('Orders');
-  const dataRange = orderSheet.getDataRange().getValues();
-  const headers = dataRange.shift();
-  
-  const orderIdCol = headers.indexOf('orderId');
-  const statusCol = headers.indexOf('status');
-  const userIdCol = headers.indexOf('userId');
-  
-  for (let i = 0; i < dataRange.length; i++) {
-    if (dataRange[i][orderIdCol] === orderId) {
-      orderSheet.getRange(i + 2, statusCol + 1).setValue(newStatus);
+function updateOrderStatus(staffId, { orderId, newStatus }) {
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idCol = headers.indexOf('orderId');
+  const statusCol = headers.indexOf('status') + 1;
+  const userCol = headers.indexOf('userId');
+
+  for (let i=0; i<data.length; i++) {
+    if (data[i][idCol] === orderId) {
+      sheet.getRange(i+2, statusCol).setValue(newStatus);
       
       if (newStatus === 'Served') {
-        const customerId = dataRange[i][userIdCol];
+        const customerId = data[i][userCol];
         notifyCustomerServed(customerId, orderId);
       }
       
       logActivity('updateOrderStatus', staffId, { orderId, newStatus });
-      
       return { success: true, orderId, newStatus };
     }
   }
-  
   throw new Error('ไม่พบออเดอร์');
 }
 
-// ========== NEW ORDER CHECKER ==========
 function checkNewOrders(userId, lastCheck) {
-  try {
-    verifyAuth(userId, 'Staff');
-    
-    const orderSheet = getSheet('Orders');
-    const data = orderSheet.getDataRange().getValues();
-    const headers = data.shift();
-    
-    const timestampCol = headers.indexOf('timestamp');
-    const statusCol = headers.indexOf('status');
-    
-    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
-    
-    const newOrders = data
-      .filter(row => {
-        const orderDate = new Date(row[timestampCol]);
-        return orderDate > lastCheckDate && 
-               ['Pending', 'Cooking'].includes(row[statusCol]);
-      })
-      .map(row => {
-        const order = {};
-        headers.forEach((header, index) => {
-          if (header === 'items' && row[index]) {
-            try {
-              order[header] = JSON.parse(row[index]);
-            } catch {
-              order[header] = row[index];
-            }
-          } else {
-            order[header] = row[index];
-          }
-        });
-        return order;
+  verifyAuth(userId, 'Staff');
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const tsCol = headers.indexOf('timestamp');
+  const statusCol = headers.indexOf('status');
+  const last = lastCheck ? new Date(lastCheck) : new Date(0);
+
+  const newOrders = data
+    .filter(row => new Date(row[tsCol]) > last && ['Pending','Cooking'].includes(row[statusCol]))
+    .map(row => {
+      const o = {};
+      headers.forEach((h,i) => {
+        if (h === 'items' && row[i]) {
+          try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
+        } else {
+          o[h] = row[i];
+        }
       });
-    
-    return {
-      hasNewOrders: newOrders.length > 0,
-      newOrders: newOrders,
-      count: newOrders.length
-    };
-    
-  } catch (error) {
-    logError(error);
-    return { hasNewOrders: false, newOrders: [], count: 0 };
-  }
+      return o;
+    });
+
+  return { 
+    hasNewOrders: newOrders.length > 0, 
+    newOrders: newOrders, 
+    count: newOrders.length 
+  };
 }
 
-// ========== BILLING ==========
 function calculateBill(orderId, payment) {
-  const orderSheet = getSheet('Orders');
-  const dataRange = orderSheet.getDataRange().getValues();
-  const headers = dataRange.shift();
-  
-  const orderIdCol = headers.indexOf('orderId');
-  const totalPriceCol = headers.indexOf('totalPrice');
-  const statusCol = headers.indexOf('status');
-  const paymentStatusCol = headers.indexOf('paymentStatus') || headers.length;
-  
-  for (let i = 0; i < dataRange.length; i++) {
-    if (dataRange[i][orderIdCol] === orderId) {
-      const total = Number(dataRange[i][totalPriceCol]);
-      const change = payment - total;
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idCol = headers.indexOf('orderId');
+  const priceCol = headers.indexOf('totalPrice');
+  const statusCol = headers.indexOf('status') + 1;
+  const payStatusCol = headers.indexOf('paymentStatus') + 1;
+
+  for (let i=0; i<data.length; i++) {
+    if (data[i][idCol] === orderId) {
+      const total = Number(data[i][priceCol]);
+      if (payment < total) throw new Error('เงินไม่พอ');
       
-      if (change < 0) {
-        throw new Error('เงินไม่พอ');
-      }
+      sheet.getRange(i+2, statusCol).setValue('Paid');
+      if (payStatusCol) sheet.getRange(i+2, payStatusCol).setValue('Paid');
       
-      orderSheet.getRange(i + 2, statusCol + 1).setValue('Paid');
-      if (paymentStatusCol <= headers.length) {
-        orderSheet.getRange(i + 2, paymentStatusCol + 1).setValue('Paid');
-      }
-      
-      return {
-        total: total,
-        payment: payment,
-        change: change,
-        success: true
+      return { 
+        total: total, 
+        payment: payment, 
+        change: payment - total,
+        success: true 
       };
     }
   }
-  
   throw new Error('ไม่พบออเดอร์');
 }
 
 // ========== ADMIN MENU MANAGEMENT ==========
 function manageMenu(userId, action, menuData) {
   verifyAuth(userId, 'Admin');
-  
-  const menuSheet = getSheet('Menu');
-  
+  const sheet = getSheet('Menu');
+
   switch(action) {
     case 'getAll':
       return getMenu();
       
-    case 'update':
-      const { id, updates } = menuData;
-      return updateMenuItem(menuSheet, id, updates);
-      
-    case 'toggle':
+    case 'toggleStatus':
       const { itemId, status } = menuData;
-      return toggleMenuItemStatus(menuSheet, itemId, status);
+      return toggleMenuItemStatus(sheet, itemId, status);
+      
+    case 'updatePrice':
+      const { id, price } = menuData;
+      return updateMenuItemPrice(sheet, id, price);
       
     case 'add':
-      return addMenuItem(menuSheet, menuData);
+      return addMenuItem(sheet, menuData);
       
     case 'delete':
-      const { deleteId } = menuData;
-      return deleteMenuItem(menuSheet, deleteId);
+      return deleteMenuItem(sheet, menuData.deleteId);
       
     default:
       throw new Error('Invalid action');
   }
 }
 
-function updateMenuItem(sheet, id, updates) {
+function toggleMenuItemStatus(sheet, id, status) {
   const data = sheet.getDataRange().getValues();
   const headers = data.shift();
-  
-  const idCol = headers.indexOf('id');
-  
-  for (let i = 0; i < data.length; i++) {
-    if (data[i][idCol] === id) {
-      const row = i + 2;
-      
-      Object.entries(updates).forEach(([key, value]) => {
-        const colIndex = headers.indexOf(key) + 1;
-        if (colIndex > 0) {
-          sheet.getRange(row, colIndex).setValue(value);
-        }
-      });
-      
-      return { success: true, message: 'อัพเดทเมนูเรียบร้อย' };
-    }
-  }
-  
-  throw new Error('ไม่พบเมนู');
-}
-
-function toggleMenuItemStatus(sheet, itemId, status) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  
   const idCol = headers.indexOf('id');
   const statusCol = headers.indexOf('status') + 1;
   
-  for (let i = 0; i < data.length; i++) {
-    if (data[i][idCol] === itemId) {
-      sheet.getRange(i + 2, statusCol).setValue(status);
-      return { success: true, message: `เปลี่ยนสถานะเป็น ${status} เรียบร้อย` };
+  for (let i=0; i<data.length; i++) {
+    if (data[i][idCol] === id) {
+      sheet.getRange(i+2, statusCol).setValue(status);
+      return { success: true, message: `เปลี่ยนสถานะเป็น ${status}` };
     }
   }
-  
   throw new Error('ไม่พบเมนู');
 }
 
-function addMenuItem(sheet, newItem) {
+function updateMenuItemPrice(sheet, id, newPrice) {
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+  const idCol = headers.indexOf('id');
+  const priceCol = headers.indexOf('price') + 1;
+  
+  for (let i=0; i<data.length; i++) {
+    if (data[i][idCol] === id) {
+      sheet.getRange(i+2, priceCol).setValue(newPrice);
+      return { success: true, message: 'อัปเดตราคาเรียบร้อย' };
+    }
+  }
+  throw new Error('ไม่พบเมนู');
+}
+
+function addMenuItem(sheet, item) {
   const lastRow = sheet.getLastRow();
-  const newId = `M${String(lastRow).padStart(3, '0')}`;
-  
+  const newId = `M${String(lastRow).padStart(3,'0')}`;
   const newRow = [
-    newId,
-    newItem.name,
-    newItem.category,
-    newItem.price,
-    newItem.imageUrl || '',
-    newItem.status || 'มี'
+    newId, 
+    item.name, 
+    item.category, 
+    item.price, 
+    item.imageUrl || '', 
+    item.status || 'มี'
   ];
-  
   sheet.appendRow(newRow);
-  
   return { success: true, id: newId, message: 'เพิ่มเมนูเรียบร้อย' };
 }
 
 function deleteMenuItem(sheet, id) {
   const data = sheet.getDataRange().getValues();
   const headers = data.shift();
-  
   const idCol = headers.indexOf('id');
   
-  for (let i = 0; i < data.length; i++) {
+  for (let i=0; i<data.length; i++) {
     if (data[i][idCol] === id) {
-      sheet.deleteRow(i + 2);
+      sheet.deleteRow(i+2);
       return { success: true, message: 'ลบเมนูเรียบร้อย' };
     }
   }
-  
   throw new Error('ไม่พบเมนู');
 }
 
 function getAllUsers() {
-  const userSheet = getSheet('Users');
-  const data = userSheet.getDataRange().getValues();
+  const sheet = getSheet('Users');
+  const data = sheet.getDataRange().getValues();
   const headers = data.shift();
   
   return data.map(row => {
     const user = {};
-    headers.forEach((header, index) => {
-      user[header] = row[index];
-    });
+    headers.forEach((h,i) => { user[h] = row[i]; });
     return user;
   });
 }
 
-// ========== NOTIFICATION SYSTEM ==========
-function notifyNewOrder(orderData) {
-  try {
-    const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
-    if (!channelToken) return;
-    
-    const userSheet = getSheet('Users');
-    const userData = userSheet.getDataRange().getValues();
-    const headers = userData.shift();
-    
-    const roleCol = headers.indexOf('role');
-    const userIdCol = headers.indexOf('userId');
-    
-    const staffUsers = userData
-      .filter(row => row[roleCol] === 'Staff' || row[roleCol] === 'Admin')
-      .map(row => row[userIdCol]);
-    
-    const items = JSON.parse(orderData.items);
-    const itemSummary = items.map(i => `${i.name} x${i.quantity}`).join(', ');
-    
-    staffUsers.forEach(staffId => {
-      sendLineMessage(staffId, {
-        type: 'text',
-        text: `🍜 ออเดอร์ใหม่!\nโต๊ะ: ${orderData.tableNo}\nรายการ: ${itemSummary}\nรวม: ${orderData.totalPrice} บาท`
-      });
+// ========== NOTIFICATIONS ==========
+function notifyNewOrder(order) {
+  const token = getSecret('CHANNEL_ACCESS_TOKEN');
+  if (!token) return;
+  
+  const userSheet = getSheet('Users');
+  const data = userSheet.getDataRange().getValues();
+  const headers = data.shift();
+  const roleIdx = headers.indexOf('role');
+  const userIdIdx = headers.indexOf('userId');
+  
+  const staff = data
+    .filter(r => r[roleIdx] === 'Staff' || r[roleIdx] === 'Admin')
+    .map(r => r[userIdIdx]);
+
+  const items = JSON.parse(order.items);
+  const summary = items.map(i => `${i.name} x${i.quantity}`).join(', ');
+  
+  staff.forEach(uid => {
+    sendLineMessage(uid, { 
+      type: 'text', 
+      text: `🍜 ออเดอร์ใหม่!\nโต๊ะ: ${order.tableNo}\nรายการ: ${summary}\nรวม: ${order.totalPrice} บาท` 
     });
-    
-  } catch (error) {
-    console.error('Failed to send notification:', error);
-  }
+  });
 }
 
 function notifyCustomerServed(customerId, orderId) {
-  const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
-  if (!channelToken) return;
+  const token = getSecret('CHANNEL_ACCESS_TOKEN');
+  if (!token) return;
   
-  sendLineMessage(customerId, {
-    type: 'text',
-    text: `🍜 อาหารของคุณเสิร์ฟแล้ว! กรุณารับที่โต๊ะ\nหมายเลขออเดอร์: ${orderId}\n\nขอให้อร่อยนะคะ 😊`
+  sendLineMessage(customerId, { 
+    type: 'text', 
+    text: `🍜 อาหารของคุณเสิร์ฟแล้ว! หมายเลขออเดอร์: ${orderId}\n\nขอให้อร่อยนะคะ 😊` 
   });
 }
 
 function sendLineMessage(userId, message) {
-  const channelToken = getSecret('CHANNEL_ACCESS_TOKEN');
-  if (!channelToken) return;
-  
-  const payload = {
-    to: userId,
-    messages: [message]
-  };
+  const token = getSecret('CHANNEL_ACCESS_TOKEN');
+  if (!token) return;
   
   const options = {
     method: 'post',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${channelToken}`
+    headers: { 
+      'Content-Type': 'application/json', 
+      'Authorization': `Bearer ${token}` 
     },
-    payload: JSON.stringify(payload),
+    payload: JSON.stringify({ to: userId, messages: [message] }),
     muteHttpExceptions: true
   };
   
-  try {
-    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', options);
-  } catch (error) {
-    console.error('LINE Push Error:', error);
+  try { 
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', options); 
+  } catch (e) {
+    console.error('LINE Push Error:', e);
   }
 }
 
 // ========== LOGGING ==========
-function logActivity(action, userId, details = {}) {
+function logActivity(action, userId, details={}) {
   try {
-    const logSheet = getSheet('Logs');
-    logSheet.appendRow([
-      new Date(),
-      action || 'unknown',
-      userId || 'system',
-      JSON.stringify(details),
-      getEnvironment(),
+    getSheet('Logs').appendRow([
+      new Date(), 
+      action || 'unknown', 
+      userId || 'system', 
+      JSON.stringify(details), 
+      getEnvironment(), 
       'INFO'
     ]);
-  } catch (error) {
-    console.error('Failed to log activity:', error);
-  }
+  } catch (e) {}
 }
 
-function logError(error, context = {}) {
+function logError(error, ctx={}) {
   try {
-    const logSheet = getSheet('Logs');
-    logSheet.appendRow([
-      new Date(),
-      'ERROR',
-      context.userId || 'system',
-      error.toString(),
-      getEnvironment(),
+    getSheet('Logs').appendRow([
+      new Date(), 
+      'ERROR', 
+      ctx.userId || 'system', 
+      error.toString(), 
+      getEnvironment(), 
       'ERROR'
     ]);
-  } catch (e) {
-    console.error('Failed to log error:', e);
-  }
+  } catch (e) {}
 }
 
 // ========== HTML SERVICE ==========
