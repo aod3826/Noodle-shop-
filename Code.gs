@@ -1,575 +1,1225 @@
-// ============================================
-// NOODLE SHOP MANAGEMENT SYSTEM
-// PRODUCTION READY - VERSION 5.0.0
-// LINE LIFF + Google Apps Script + Google Sheets
-// ============================================
+/**
+ * Beauty Noodle Shop - Backend System
+ * Google Apps Script Backend for Restaurant Management
+ * 
+ * @author Senior Backend Developer
+ * @version 1.0.0
+ */
 
-// ========== CONFIGURATION ==========
-function getEnvironment() {
-  const url = ScriptApp.getService().getUrl();
-  if (url.includes('dev') || url.includes('test')) return 'DEV';
-  const prodUrl = PropertiesService.getScriptProperties().getProperty('PROD_URL');
-  return (prodUrl && url === prodUrl) ? 'PROD' : 'DEV';
+// ============================================================================
+// CONFIGURATION & INITIALIZATION
+// ============================================================================
+
+/**
+ * ฟังก์ชันตั้งค่าเริ่มต้น - ให้รันครั้งแรกเพื่อบันทึก Spreadsheet ID
+ */
+function initialSetup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const spreadsheetId = ss.getId();
+  
+  // เก็บ Spreadsheet ID ใน Script Properties (ปลอดภัย ไม่ hard-code)
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', spreadsheetId);
+  
+  Logger.log('✅ Initial setup completed. Spreadsheet ID saved to Script Properties.');
+  Logger.log('Spreadsheet ID: ' + spreadsheetId);
 }
 
-function getSecret(key) {
-  const env = getEnvironment();
-  const secretKey = `${env}_${key}`;
-  let value = PropertiesService.getScriptProperties().getProperty(secretKey);
-  if (!value) value = PropertiesService.getScriptProperties().getProperty(key);
-  return value;
+/**
+ * ตั้งค่า LINE Messaging API
+ * ให้รันฟังก์ชันนี้หลังจาก initialSetup() เพื่อบันทึกข้อมูล LINE
+ */
+function setupLineMessaging() {
+  const properties = PropertiesService.getScriptProperties();
+  
+  // ⚠️ แทนที่ด้วยค่าจริงจาก LINE Developers Console
+  properties.setProperty('LINE_ACCESS_TOKEN', 'YOUR_LINE_CHANNEL_ACCESS_TOKEN');
+  properties.setProperty('LINE_GROUP_ID', 'YOUR_LINE_GROUP_ID');
+  
+  Logger.log('✅ LINE Messaging setup completed.');
+  Logger.log('กรุณาแก้ไขค่า LINE_ACCESS_TOKEN และ LINE_GROUP_ID ให้ถูกต้อง');
 }
 
-// ========== SHEETS INITIALIZATION ==========
-function getSheet(sheetName) {
-  const spreadsheetId = "1g2rOFvKwPOXWSCnl5Pb_7V21mhrYIX6w_E-L2XhlXMY";
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) throw new Error(`ไม่พบชีต "${sheetName}" กรุณารัน initialSetup`);
-  return sheet;
-}
-
-// ========== AUTH MIDDLEWARE with AUTO-ONBOARDING ==========
-function verifyAuth(userId, requiredRole = null) {
-  if (!userId) throw new Error('ไม่พบ User ID กรุณาเข้าสู่ระบบผ่าน LINE');
-
-  const userSheet = getSheet('Users');
-  const data = userSheet.getDataRange().getValues();
-  const headers = data.shift();
-  const userIdIdx = headers.indexOf('userId');
-  const roleIdx = headers.indexOf('role');
-  const nameIdx = headers.indexOf('name');
-  const timestampIdx = headers.indexOf('timestamp');
-
-  let userRole = null;
-  let userExists = false;
-  let userRow = null;
-
-  for (const row of data) {
-    if (row[userIdIdx] === userId) {
-      userRole = row[roleIdx];
-      userExists = true;
-      userRow = row;
-      break;
-    }
-  }
-
-  // ----- AUTO-ONBOARDING -----
-  if (!userExists) {
-    const displayName = 'ลูกค้าใหม่'; // สามารถรับจาก frontend ได้
-    const now = new Date();
-
-    const newRow = [];
-    headers.forEach((h, i) => {
-      if (h === 'userId') newRow[i] = userId;
-      else if (h === 'name') newRow[i] = displayName;
-      else if (h === 'role') newRow[i] = 'Customer';
-      else if (h === 'timestamp') newRow[i] = now;
-      else newRow[i] = '';
-    });
-    userSheet.appendRow(newRow);
-
-    userRole = 'Customer';
-    console.log(`✅ New user auto-registered: ${userId}`);
-  }
-
-  if (requiredRole) {
-    const hierarchy = { Admin:3, Staff:2, Customer:1 };
-    if (hierarchy[userRole] < hierarchy[requiredRole])
-      throw new Error(`ต้องการสิทธิ์ ${requiredRole} แต่คุณมีสิทธิ์ ${userRole}`);
-  }
-
-  return userRole;
-}
-
-// ========== MAIN ROUTER ==========
-function doPost(e) { return handleRequest(e, 'POST'); }
-function doGet(e) { return handleRequest(e, 'GET'); }
-
-function handleRequest(e, method) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+/**
+ * ดึงค่า LINE Configuration
+ */
+function getLineConfig() {
+  const properties = PropertiesService.getScriptProperties();
+  return {
+    accessToken: properties.getProperty('LINE_ACCESS_TOKEN'),
+    groupId: properties.getProperty('LINE_GROUP_ID')
   };
+}
 
+/**
+ * ดึง Spreadsheet จาก Properties (ปลอดภัย)
+ */
+function getSpreadsheet() {
+  const spreadsheetId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  
+  if (!spreadsheetId) {
+    throw new Error('Spreadsheet ID not found. Please run initialSetup() first.');
+  }
+  
+  return SpreadsheetApp.openById(spreadsheetId);
+}
+
+// ============================================================================
+// DATABASE SETUP
+// ============================================================================
+
+/**
+ * สร้างโครงสร้างฐานข้อมูลทั้งหมด
+ */
+function setupDatabase() {
   try {
-    const params = e.parameter || {};
-    const postData = e.postData ? JSON.parse(e.postData.contents) : {};
-    const action = params.action || postData.action;
-    const userId = params.userId || postData.userId;
+    const ss = getSpreadsheet();
+    
+    // สร้างชีต Config
+    createConfigSheet(ss);
+    
+    // สร้างชีต Menu
+    createMenuSheet(ss);
+    
+    // สร้างชีต Orders
+    createOrdersSheet(ss);
+    
+    // สร้างชีต Logs
+    createLogsSheet(ss);
+    
+    Logger.log('✅ Database setup completed successfully!');
+    return {
+      success: true,
+      message: 'Database initialized successfully'
+    };
+    
+  } catch (error) {
+    Logger.log('❌ Error in setupDatabase: ' + error.message);
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
 
-    logActivity(action, userId, { method });
+/**
+ * สร้างชีต Config
+ */
+function createConfigSheet(ss) {
+  let sheet = ss.getSheetByName('Config');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Config');
+  } else {
+    sheet.clear();
+  }
+  
+  // Headers
+  sheet.getRange('A1:B1').setValues([['key', 'value']]);
+  sheet.getRange('A1:B1').setFontWeight('bold').setBackground('#4285f4').setFontColor('#ffffff');
+  
+  // ข้อมูลเริ่มต้น
+  const configData = [
+    ['shopName', 'Beauty Noodle Shop'],
+    ['isOpen', 'true'],
+    ['liffId', ''],
+    ['taxRate', '0.07'],
+    ['serviceCharge', '0'],
+    ['currency', 'THB']
+  ];
+  
+  sheet.getRange(2, 1, configData.length, 2).setValues(configData);
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 2);
+  
+  Logger.log('✓ Config sheet created');
+}
 
-    let result;
+/**
+ * สร้างชีต Menu
+ */
+function createMenuSheet(ss) {
+  let sheet = ss.getSheetByName('Menu');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Menu');
+  } else {
+    sheet.clear();
+  }
+  
+  // Headers
+  const headers = [['id', 'name', 'category', 'price', 'options_json', 'status']];
+  sheet.getRange('A1:F1').setValues(headers);
+  sheet.getRange('A1:F1').setFontWeight('bold').setBackground('#34a853').setFontColor('#ffffff');
+  
+  // ข้อมูลตัวอย่าง
+  const sampleData = [
+    ['M001', 'ก่วยเตี๋ยวหมูน้ำใส', 'ก่วยเตี๋ยว', 45, JSON.stringify([
+      {type: 'noodle', name: 'เส้น', choices: ['เส้นเล็ก', 'เส้นใหญ่', 'เส้นหมี่', 'วุ้นเส้น']},
+      {type: 'addon', name: 'เพิ่มเติม', choices: ['เนื้อพิเศษ +20', 'ไข่ต้ม +10', 'เครื่องใน +15']}
+    ]), 'active'],
+    ['M002', 'ก่วยเตี๋ยวหมูน้ำตก', 'ก่วยเตี๋ยว', 50, JSON.stringify([
+      {type: 'noodle', name: 'เส้น', choices: ['เส้นเล็ก', 'เส้นใหญ่', 'เส้นหมี่', 'วุ้นเส้น']},
+      {type: 'addon', name: 'เพิ่มเติม', choices: ['เนื้อพิเศษ +20', 'ไข่ต้ม +10']}
+    ]), 'active'],
+    ['M003', 'ก่วยเตี๋ยวไก่', 'ก่วยเตี๋ยว', 45, JSON.stringify([
+      {type: 'noodle', name: 'เส้น', choices: ['เส้นเล็ก', 'เส้นใหญ่', 'เส้นหมี่']}
+    ]), 'active'],
+    ['M004', 'น้ำเปล่า', 'เครื่องดื่ม', 10, '[]', 'active'],
+    ['M005', 'น้ำอัดลม', 'เครื่องดื่ม', 15, '[]', 'active']
+  ];
+  
+  sheet.getRange(2, 1, sampleData.length, 6).setValues(sampleData);
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 6);
+  
+  Logger.log('✓ Menu sheet created');
+}
+
+/**
+ * สร้างชีต Orders
+ */
+function createOrdersSheet(ss) {
+  let sheet = ss.getSheetByName('Orders');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Orders');
+  } else {
+    sheet.clear();
+  }
+  
+  // Headers
+  const headers = [['orderId', 'userId', 'items_json', 'totalPrice', 'type', 'payment', 'status', 'timestamp']];
+  sheet.getRange('A1:H1').setValues(headers);
+  sheet.getRange('A1:H1').setFontWeight('bold').setBackground('#fbbc04').setFontColor('#000000');
+  
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 8);
+  
+  Logger.log('✓ Orders sheet created');
+}
+
+/**
+ * สร้างชีต Logs
+ */
+function createLogsSheet(ss) {
+  let sheet = ss.getSheetByName('Logs');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Logs');
+  } else {
+    sheet.clear();
+  }
+  
+  // Headers
+  const headers = [['timestamp', 'userId', 'action', 'details']];
+  sheet.getRange('A1:D1').setValues(headers);
+  sheet.getRange('A1:D1').setFontWeight('bold').setBackground('#ea4335').setFontColor('#ffffff');
+  
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 4);
+  
+  Logger.log('✓ Logs sheet created');
+}
+
+// ============================================================================
+// API ENDPOINTS
+// ============================================================================
+
+/**
+ * GET API - ดึงข้อมูลเมนูและสถานะร้านค้า
+ */
+function doGet(e) {
+  // 1. ถ้าไม่มีการส่ง parameter 'action' มา ให้แสดงหน้าเว็บ HTML (index.html)
+  if (!e.parameter.action) {
+    return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('Beauty Noodle Shop')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
+  // 2. ถ้ามีการส่ง action มา (เช่น เพื่อดึงข้อมูล API) ให้ทำงานตามปกติ
+  try {
+    const action = e.parameter.action;
+    
     switch (action) {
-      // Public APIs
-      case 'getConfig':
-        result = getPublicConfig();
-        break;
-      
-      // Customer APIs
       case 'getMenu':
-        verifyAuth(userId, 'Customer');
-        result = getMenu();
-        break;
+        return getMenuAPI();
+      case 'getShopStatus':
+        return getShopStatusAPI();
+      case 'getOrder':
+        const orderId = e.parameter.orderId;
+        return getOrderAPI(orderId);
+      default:
+        return createResponse(false, 'Invalid action', null, 400);
+    }
+  } catch (error) {
+    return createResponse(false, 'Server error: ' + error.message, null, 500);
+  }
+}
+
+/**
+ * POST API - รับ JSON Payload และ LINE Webhook
+ */
+function doPost(e) {
+  // ใช้ Lock เพื่อป้องกันการเขียนทับกัน
+  const lock = LockService.getScriptLock();
+  
+  try {
+    // รอ Lock สูงสุด 30 วินาที
+    lock.waitLock(30000);
+    
+    // Parse JSON payload
+    const payload = JSON.parse(e.postData.contents);
+    
+    // ตรวจสอบว่าเป็น LINE Webhook หรือไม่
+    if (payload.events && Array.isArray(payload.events)) {
+      return handleLineWebhook(payload);
+    }
+    
+    // ถ้าไม่ใช่ LINE Webhook ให้ดำเนินการตามปกติ
+    const action = payload.action;
+    
+    switch (action) {
+      case 'saveOrder':
+        return saveOrderAPI(payload);
       
-      case 'createOrder':
-        verifyAuth(userId, 'Customer');
-        result = createOrder(userId, postData);
-        break;
+      case 'updateStatus':
+        return updateStatusAPI(payload);
       
-      case 'getMyOrders':
-        verifyAuth(userId, 'Customer');
-        result = getUserOrders(userId);
-        break;
-      
-      // Staff APIs
-      case 'getActiveOrders':
-        verifyAuth(userId, 'Staff');
-        result = getActiveOrders();
-        break;
-      
-      case 'updateOrderStatus':
-        verifyAuth(userId, 'Staff');
-        result = updateOrderStatus(userId, postData);
-        break;
-      
-      case 'checkNewOrders':
-        verifyAuth(userId, 'Staff');
-        result = checkNewOrders(userId, postData.lastCheck);
-        break;
-      
-      case 'billCalculation':
-        verifyAuth(userId, 'Staff');
-        result = calculateBill(postData.orderId, postData.payment);
-        break;
-      
-      // Admin APIs
-      case 'manageMenu':
-        verifyAuth(userId, 'Admin');
-        result = manageMenu(userId, postData.action, postData.menuData);
-        break;
-      
-      case 'getAllUsers':
-        verifyAuth(userId, 'Admin');
-        result = getAllUsers();
-        break;
+      case 'updateConfig':
+        return updateConfigAPI(payload);
       
       default:
-        throw new Error(`ไม่พบ action: ${action}`);
+        return createResponse(false, 'Invalid action', null, 400);
     }
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true, data: result }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .setHeaders(headers);
-      
+    
   } catch (error) {
-    console.error('API Error:', error);
-    logError(error, e.parameter);
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: error.message, env: getEnvironment() }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .setHeaders(headers);
+    logAction('SYSTEM', 'POST_ERROR', error.message);
+    return createResponse(false, 'Server error: ' + error.message, null, 500);
+    
+  } finally {
+    // ปลดล็อคเสมอ
+    lock.releaseLock();
   }
 }
 
-// ========== PUBLIC CONFIG ==========
-function getPublicConfig() {
-  return {
-    environment: getEnvironment(),
-    liffId: "2008933274-bXEJEVx2",
-    shopName: getConfigValue('shopName') || 'ร้านก๋วยเตี๋ยว',
-    version: '5.0.0',
-    businessHours: getConfigValue('businessHours') || '10:00-22:00'
-  };
-}
+// ============================================================================
+// API FUNCTIONS - GET
+// ============================================================================
 
-function getConfigValue(key) {
+/**
+ * ดึงข้อมูลเมนูทั้งหมด
+ */
+function getMenuAPI() {
   try {
-    const sheet = getSheet('Config');
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Menu');
+    
+    if (!sheet) {
+      return createResponse(false, 'Menu sheet not found', null, 404);
+    }
+    
     const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === key) return data[i][1];
-    }
-  } catch (e) {}
-  return null;
-}
-
-// ========== MENU ==========
-function getMenu() {
-  const sheet = getSheet('Menu');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  return data.map(row => {
-    const item = {};
-    headers.forEach((h, i) => {
-      if (h === 'price') item[h] = Number(row[i]);
-      else item[h] = row[i];
-    });
-    if (item.imageUrl && item.imageUrl.includes('drive.google.com'))
-      item.imageUrl = convertDriveLink(item.imageUrl);
-    return item;
-  }).filter(item => item.status !== 'deleted' && item.status !== 'ซ่อน');
-}
-
-function convertDriveLink(url) {
-  const id = extractFileId(url);
-  return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w400` : url;
-}
-
-function extractFileId(url) {
-  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
-  return m ? m[1] : null;
-}
-
-// ========== ORDER ==========
-function createOrder(userId, data) {
-  const { tableNo, items, totalPrice, specialNotes } = data;
-  if (!items?.length) throw new Error('กรุณาเลือกรายการอาหาร');
-
-  const sheet = getSheet('Orders');
-  const orderId = 'ORD-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2,5).toUpperCase();
-  
-  const order = {
-    orderId: orderId,
-    userId: userId,
-    tableNo: tableNo || 'Takeaway',
-    items: JSON.stringify(items),
-    totalPrice: totalPrice,
-    specialNotes: specialNotes || '',
-    status: 'Pending',
-    timestamp: new Date(),
-    paymentStatus: 'Pending'
-  };
-
-  const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
-  const newRow = headers.map(h => order[h] || '');
-  sheet.appendRow(newRow);
-
-  notifyNewOrder(order);
-  return { orderId: orderId, ...order };
-}
-
-function getActiveOrders() {
-  const sheet = getSheet('Orders');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const active = ['Pending','Cooking','Served'];
-  
-  return data.map(row => {
-    const o = {};
-    headers.forEach((h,i) => {
-      if (h === 'items' && row[i]) {
-        try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
-      } else if (h === 'totalPrice') {
-        o[h] = Number(row[i]) || 0;
-      } else {
-        o[h] = row[i];
-      }
-    });
-    return o;
-  }).filter(o => active.includes(o.status))
-    .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-}
-
-function getUserOrders(userId) {
-  const sheet = getSheet('Orders');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  
-  return data.map(row => {
-    const o = {};
-    headers.forEach((h,i) => {
-      if (h === 'items' && row[i]) {
-        try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
-      } else {
-        o[h] = row[i];
-      }
-    });
-    return o;
-  }).filter(o => o.userId === userId)
-    .sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-}
-
-function updateOrderStatus(staffId, { orderId, newStatus }) {
-  const sheet = getSheet('Orders');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const idCol = headers.indexOf('orderId');
-  const statusCol = headers.indexOf('status') + 1;
-  const userCol = headers.indexOf('userId');
-
-  for (let i=0; i<data.length; i++) {
-    if (data[i][idCol] === orderId) {
-      sheet.getRange(i+2, statusCol).setValue(newStatus);
-      
-      if (newStatus === 'Served') {
-        const customerId = data[i][userCol];
-        notifyCustomerServed(customerId, orderId);
-      }
-      
-      logActivity('updateOrderStatus', staffId, { orderId, newStatus });
-      return { success: true, orderId, newStatus };
-    }
-  }
-  throw new Error('ไม่พบออเดอร์');
-}
-
-function checkNewOrders(userId, lastCheck) {
-  verifyAuth(userId, 'Staff');
-  const sheet = getSheet('Orders');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const tsCol = headers.indexOf('timestamp');
-  const statusCol = headers.indexOf('status');
-  const last = lastCheck ? new Date(lastCheck) : new Date(0);
-
-  const newOrders = data
-    .filter(row => new Date(row[tsCol]) > last && ['Pending','Cooking'].includes(row[statusCol]))
-    .map(row => {
-      const o = {};
-      headers.forEach((h,i) => {
-        if (h === 'items' && row[i]) {
-          try { o[h] = JSON.parse(row[i]); } catch { o[h] = row[i]; }
+    const headers = data[0];
+    const rows = data.slice(1);
+    
+    const menu = rows.map(row => {
+      const item = {};
+      headers.forEach((header, index) => {
+        if (header === 'options_json') {
+          try {
+            item.options = JSON.parse(row[index] || '[]');
+          } catch {
+            item.options = [];
+          }
+        } else if (header === 'price') {
+          item[header] = Number(row[index]);
         } else {
-          o[h] = row[i];
+          item[header] = row[index];
         }
       });
-      return o;
-    });
-
-  return { 
-    hasNewOrders: newOrders.length > 0, 
-    newOrders: newOrders, 
-    count: newOrders.length 
-  };
-}
-
-function calculateBill(orderId, payment) {
-  const sheet = getSheet('Orders');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const idCol = headers.indexOf('orderId');
-  const priceCol = headers.indexOf('totalPrice');
-  const statusCol = headers.indexOf('status') + 1;
-  const payStatusCol = headers.indexOf('paymentStatus') + 1;
-
-  for (let i=0; i<data.length; i++) {
-    if (data[i][idCol] === orderId) {
-      const total = Number(data[i][priceCol]);
-      if (payment < total) throw new Error('เงินไม่พอ');
-      
-      sheet.getRange(i+2, statusCol).setValue('Paid');
-      if (payStatusCol) sheet.getRange(i+2, payStatusCol).setValue('Paid');
-      
-      return { 
-        total: total, 
-        payment: payment, 
-        change: payment - total,
-        success: true 
-      };
-    }
-  }
-  throw new Error('ไม่พบออเดอร์');
-}
-
-// ========== ADMIN MENU MANAGEMENT ==========
-function manageMenu(userId, action, menuData) {
-  verifyAuth(userId, 'Admin');
-  const sheet = getSheet('Menu');
-
-  switch(action) {
-    case 'getAll':
-      return getMenu();
-      
-    case 'toggleStatus':
-      const { itemId, status } = menuData;
-      return toggleMenuItemStatus(sheet, itemId, status);
-      
-    case 'updatePrice':
-      const { id, price } = menuData;
-      return updateMenuItemPrice(sheet, id, price);
-      
-    case 'add':
-      return addMenuItem(sheet, menuData);
-      
-    case 'delete':
-      return deleteMenuItem(sheet, menuData.deleteId);
-      
-    default:
-      throw new Error('Invalid action');
+      return item;
+    }).filter(item => item.status === 'active'); // เอาแค่รายการที่เปิดขาย
+    
+    logAction('SYSTEM', 'GET_MENU', `Returned ${menu.length} items`);
+    
+    return createResponse(true, 'Menu retrieved successfully', { menu: menu });
+    
+  } catch (error) {
+    return createResponse(false, 'Error retrieving menu: ' + error.message, null, 500);
   }
 }
 
-function toggleMenuItemStatus(sheet, id, status) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const idCol = headers.indexOf('id');
-  const statusCol = headers.indexOf('status') + 1;
-  
-  for (let i=0; i<data.length; i++) {
-    if (data[i][idCol] === id) {
-      sheet.getRange(i+2, statusCol).setValue(status);
-      return { success: true, message: `เปลี่ยนสถานะเป็น ${status}` };
-    }
-  }
-  throw new Error('ไม่พบเมนู');
-}
-
-function updateMenuItemPrice(sheet, id, newPrice) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const idCol = headers.indexOf('id');
-  const priceCol = headers.indexOf('price') + 1;
-  
-  for (let i=0; i<data.length; i++) {
-    if (data[i][idCol] === id) {
-      sheet.getRange(i+2, priceCol).setValue(newPrice);
-      return { success: true, message: 'อัปเดตราคาเรียบร้อย' };
-    }
-  }
-  throw new Error('ไม่พบเมนู');
-}
-
-function addMenuItem(sheet, item) {
-  const lastRow = sheet.getLastRow();
-  const newId = `M${String(lastRow).padStart(3,'0')}`;
-  const newRow = [
-    newId, 
-    item.name, 
-    item.category, 
-    item.price, 
-    item.imageUrl || '', 
-    item.status || 'มี'
-  ];
-  sheet.appendRow(newRow);
-  return { success: true, id: newId, message: 'เพิ่มเมนูเรียบร้อย' };
-}
-
-function deleteMenuItem(sheet, id) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  const idCol = headers.indexOf('id');
-  
-  for (let i=0; i<data.length; i++) {
-    if (data[i][idCol] === id) {
-      sheet.deleteRow(i+2);
-      return { success: true, message: 'ลบเมนูเรียบร้อย' };
-    }
-  }
-  throw new Error('ไม่พบเมนู');
-}
-
-function getAllUsers() {
-  const sheet = getSheet('Users');
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift();
-  
-  return data.map(row => {
-    const user = {};
-    headers.forEach((h,i) => { user[h] = row[i]; });
-    return user;
-  });
-}
-
-// ========== NOTIFICATIONS ==========
-function notifyNewOrder(order) {
-  const token = getSecret('CHANNEL_ACCESS_TOKEN');
-  if (!token) return;
-  
-  const userSheet = getSheet('Users');
-  const data = userSheet.getDataRange().getValues();
-  const headers = data.shift();
-  const roleIdx = headers.indexOf('role');
-  const userIdIdx = headers.indexOf('userId');
-  
-  const staff = data
-    .filter(r => r[roleIdx] === 'Staff' || r[roleIdx] === 'Admin')
-    .map(r => r[userIdIdx]);
-
-  const items = JSON.parse(order.items);
-  const summary = items.map(i => `${i.name} x${i.quantity}`).join(', ');
-  
-  staff.forEach(uid => {
-    sendLineMessage(uid, { 
-      type: 'text', 
-      text: `🍜 ออเดอร์ใหม่!\nโต๊ะ: ${order.tableNo}\nรายการ: ${summary}\nรวม: ${order.totalPrice} บาท` 
-    });
-  });
-}
-
-function notifyCustomerServed(customerId, orderId) {
-  const token = getSecret('CHANNEL_ACCESS_TOKEN');
-  if (!token) return;
-  
-  sendLineMessage(customerId, { 
-    type: 'text', 
-    text: `🍜 อาหารของคุณเสิร์ฟแล้ว! หมายเลขออเดอร์: ${orderId}\n\nขอให้อร่อยนะคะ 😊` 
-  });
-}
-
-function sendLineMessage(userId, message) {
-  const token = getSecret('CHANNEL_ACCESS_TOKEN');
-  if (!token) return;
-  
-  const options = {
-    method: 'post',
-    headers: { 
-      'Content-Type': 'application/json', 
-      'Authorization': `Bearer ${token}` 
-    },
-    payload: JSON.stringify({ to: userId, messages: [message] }),
-    muteHttpExceptions: true
-  };
-  
-  try { 
-    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', options); 
-  } catch (e) {
-    console.error('LINE Push Error:', e);
-  }
-}
-
-// ========== LOGGING ==========
-function logActivity(action, userId, details={}) {
+/**
+ * ดึงสถานะร้านค้า
+ */
+function getShopStatusAPI() {
   try {
-    getSheet('Logs').appendRow([
-      new Date(), 
-      action || 'unknown', 
-      userId || 'system', 
-      JSON.stringify(details), 
-      getEnvironment(), 
-      'INFO'
-    ]);
-  } catch (e) {}
+    const config = getConfig();
+    const isOpenByConfig = parseConfigBoolean(config.isOpen);
+
+    const shopStatus = {
+      shopName: config.shopName || 'Beauty Noodle Shop',
+      isOpen: isOpenByConfig,
+      isOpenByConfig: isOpenByConfig,
+      liffId: config.liffId || '',
+      currency: config.currency || 'THB'
+    };
+    
+    logAction('SYSTEM', 'GET_SHOP_STATUS', 'Status retrieved');
+    
+    return createResponse(true, 'Shop status retrieved', shopStatus);
+    
+  } catch (error) {
+    return createResponse(false, 'Error retrieving shop status: ' + error.message, null, 500);
+  }
 }
 
-function logError(error, ctx={}) {
+
+/**
+ * แปลงค่า config ที่รับมาจากชีตให้เป็น boolean
+ */
+function parseConfigBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  return String(value).trim().toLowerCase() === 'true';
+}
+
+/**
+ * ดึงข้อมูลออเดอร์เฉพาะ
+ */
+function getOrderAPI(orderId) {
   try {
-    getSheet('Logs').appendRow([
-      new Date(), 
-      'ERROR', 
-      ctx.userId || 'system', 
-      error.toString(), 
-      getEnvironment(), 
-      'ERROR'
-    ]);
-  } catch (e) {}
+    if (!orderId) {
+      return createResponse(false, 'Order ID is required', null, 400);
+    }
+    
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    const data = sheet.getDataRange().getValues();
+    
+    // หา order
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === orderId) {
+        const order = {
+          orderId: data[i][0],
+          userId: data[i][1],
+          items: JSON.parse(data[i][2] || '[]'),
+          totalPrice: Number(data[i][3]),
+          type: data[i][4],
+          payment: data[i][5],
+          status: data[i][6],
+          timestamp: data[i][7]
+        };
+        
+        return createResponse(true, 'Order found', { order: order });
+      }
+    }
+    
+    return createResponse(false, 'Order not found', null, 404);
+    
+  } catch (error) {
+    return createResponse(false, 'Error retrieving order: ' + error.message, null, 500);
+  }
 }
 
-// ========== HTML SERVICE ==========
-function doGet(e) {
-  const template = HtmlService.createTemplateFromFile('index');
-  template.config = getPublicConfig();
+// ============================================================================
+// API FUNCTIONS - POST
+// ============================================================================
+
+/**
+ * บันทึกออเดอร์ใหม่
+ */
+function saveOrderAPI(payload) {
+  try {
+    const { userId, items, type, payment } = payload;
+    
+    // Validation
+    if (!userId || !items || !Array.isArray(items) || items.length === 0) {
+      return createResponse(false, 'Invalid order data', null, 400);
+    }
+    
+    if (!type || !payment) {
+      return createResponse(false, 'Order type and payment method are required', null, 400);
+    }
+    
+    // คำนวณราคาจากหลังบ้าน (ตรวจสอบความถูกต้อง)
+    const calculatedPrice = calculateOrderPrice(items);
+    
+    if (calculatedPrice === null) {
+      return createResponse(false, 'Invalid menu items in order', null, 400);
+    }
+    
+    // สร้าง Order ID
+    const orderId = generateOrderId();
+    
+    // บันทึกลง Orders sheet
+    const orderData = {
+      orderId: orderId,
+      userId: userId,
+      items: items,
+      totalPrice: calculatedPrice,
+      type: type,
+      payment: payment,
+      status: 'pending',
+      timestamp: new Date()
+    };
+    
+    const saved = saveOrder(orderData);
+    
+    if (saved) {
+      logAction(userId, 'CREATE_ORDER', `Order ${orderId} created, Total: ${calculatedPrice} THB`);
+      
+      // ส่งการแจ้งเตือนไปยัง LINE ทันที
+      sendLineFlex(orderData);
+      
+      return createResponse(true, 'Order saved successfully', {
+        orderId: orderId,
+        totalPrice: calculatedPrice,
+        status: 'pending'
+      });
+    } else {
+      return createResponse(false, 'Failed to save order', null, 500);
+    }
+    
+  } catch (error) {
+    return createResponse(false, 'Error saving order: ' + error.message, null, 500);
+  }
+}
+
+/**
+ * อัพเดทสถานะออเดอร์
+ */
+function updateStatusAPI(payload) {
+  try {
+    const { orderId, status, userId } = payload;
+    
+    // Validation
+    if (!orderId || !status) {
+      return createResponse(false, 'Order ID and status are required', null, 400);
+    }
+    
+    const validStatuses = ['pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return createResponse(false, 'Invalid status', null, 400);
+    }
+    
+    // อัพเดทสถานะ
+    const updated = updateOrderStatus(orderId, status);
+    
+    if (updated) {
+      logAction(userId || 'ADMIN', 'UPDATE_STATUS', `Order ${orderId} -> ${status}`);
+      
+      return createResponse(true, 'Order status updated', {
+        orderId: orderId,
+        newStatus: status
+      });
+    } else {
+      return createResponse(false, 'Order not found or update failed', null, 404);
+    }
+    
+  } catch (error) {
+    return createResponse(false, 'Error updating status: ' + error.message, null, 500);
+  }
+}
+
+/**
+ * อัพเดท Config
+ */
+function updateConfigAPI(payload) {
+  try {
+    const { key, value, adminToken } = payload;
+    
+    // Security check (ควรมี admin token)
+    // if (adminToken !== 'YOUR_ADMIN_SECRET') {
+    //   return createResponse(false, 'Unauthorized', null, 401);
+    // }
+    
+    if (!key || value === undefined) {
+      return createResponse(false, 'Key and value are required', null, 400);
+    }
+    
+    const updated = updateConfig(key, value);
+    
+    if (updated) {
+      logAction('ADMIN', 'UPDATE_CONFIG', `${key} = ${value}`);
+      return createResponse(true, 'Config updated', { key: key, value: value });
+    } else {
+      return createResponse(false, 'Failed to update config', null, 500);
+    }
+    
+  } catch (error) {
+    return createResponse(false, 'Error updating config: ' + error.message, null, 500);
+  }
+}
+
+// ============================================================================
+// BUSINESS LOGIC
+// ============================================================================
+
+/**
+ * คำนวณราคาออเดอร์จากเมนู (ตรวจสอบความถูกต้อง)
+ */
+function calculateOrderPrice(items) {
+  try {
+    const menuItems = getMenuItems();
+    let totalPrice = 0;
+    
+    for (const item of items) {
+      const menuItem = menuItems.find(m => m.id === item.menuId);
+      
+      if (!menuItem) {
+        Logger.log('Invalid menu item: ' + item.menuId);
+        return null;
+      }
+      
+      let itemPrice = menuItem.price * (item.quantity || 1);
+      
+      // คำนวณราคา addon
+      if (item.selectedOptions && Array.isArray(item.selectedOptions)) {
+        for (const option of item.selectedOptions) {
+          const match = option.match(/\+(\d+)/);
+          if (match) {
+            itemPrice += Number(match[1]) * (item.quantity || 1);
+          }
+        }
+      }
+      
+      totalPrice += itemPrice;
+    }
+    
+    return totalPrice;
+    
+  } catch (error) {
+    Logger.log('Error calculating price: ' + error.message);
+    return null;
+  }
+}
+
+/**
+ * ดึงรายการเมนูทั้งหมด
+ */
+function getMenuItems() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('Menu');
+  const data = sheet.getDataRange().getValues();
   
-  return template
-    .evaluate()
-    .setTitle('ร้านก๋วยเตี๋ยว')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  const menu = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][5] === 'active') { // status column
+      menu.push({
+        id: data[i][0],
+        name: data[i][1],
+        category: data[i][2],
+        price: Number(data[i][3]),
+        status: data[i][5]
+      });
+    }
+  }
+  
+  return menu;
 }
 
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+/**
+ * บันทึกออเดอร์ลง Sheet
+ */
+function saveOrder(orderData) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    
+    const rowData = [
+      orderData.orderId,
+      orderData.userId,
+      JSON.stringify(orderData.items),
+      orderData.totalPrice,
+      orderData.type,
+      orderData.payment,
+      orderData.status,
+      orderData.timestamp
+    ];
+    
+    sheet.appendRow(rowData);
+    
+    return true;
+    
+  } catch (error) {
+    Logger.log('Error saving order: ' + error.message);
+    return false;
+  }
+}
+
+/**
+ * อัพเดทสถานะออเดอร์
+ */
+function updateOrderStatus(orderId, newStatus) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === orderId) {
+        sheet.getRange(i + 1, 7).setValue(newStatus); // status column
+        return true;
+      }
+    }
+    
+    return false;
+    
+  } catch (error) {
+    Logger.log('Error updating status: ' + error.message);
+    return false;
+  }
+}
+
+/**
+ * สร้าง Order ID แบบ unique
+ */
+function generateOrderId() {
+  const timestamp = new Date().getTime();
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `ORD${timestamp}${random}`;
+}
+
+// ============================================================================
+// CONFIG FUNCTIONS
+// ============================================================================
+
+/**
+ * ดึงค่า Config ทั้งหมด
+ */
+function getConfig() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('Config');
+  const data = sheet.getDataRange().getValues();
+  
+  const config = {};
+  for (let i = 1; i < data.length; i++) {
+    config[data[i][0]] = data[i][1];
+  }
+  
+  return config;
+}
+
+/**
+ * อัพเดทค่า Config
+ */
+function updateConfig(key, value) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Config');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        sheet.getRange(i + 1, 2).setValue(value);
+        return true;
+      }
+    }
+    
+    // ถ้าไม่เจอ key ให้เพิ่มใหม่
+    sheet.appendRow([key, value]);
+    return true;
+    
+  } catch (error) {
+    Logger.log('Error updating config: ' + error.message);
+    return false;
+  }
+}
+
+// ============================================================================
+// LOGGING
+// ============================================================================
+
+/**
+ * บันทึก Log
+ */
+function logAction(userId, action, details) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Logs');
+    
+    sheet.appendRow([
+      new Date(),
+      userId,
+      action,
+      details
+    ]);
+    
+  } catch (error) {
+    Logger.log('Error logging action: ' + error.message);
+  }
+}
+
+// ============================================================================
+// LINE MESSAGING INTEGRATION
+// ============================================================================
+
+/**
+ * ส่ง Flex Message ไปยังกลุ่ม LINE
+ */
+function sendLineFlex(orderData) {
+  try {
+    const lineConfig = getLineConfig();
+    
+    if (!lineConfig.accessToken || !lineConfig.groupId) {
+      Logger.log('⚠️ LINE configuration not found. Please run setupLineMessaging()');
+      return false;
+    }
+    
+    // สร้าง Flex Message
+    const flexMessage = createOrderFlexMessage(orderData);
+    
+    // ส่งข้อความผ่าน LINE Messaging API
+    const url = 'https://api.line.me/v2/bot/message/push';
+    const payload = {
+      to: lineConfig.groupId,
+      messages: [flexMessage]
+    };
+    
+    const options = {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + lineConfig.accessToken
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const responseCode = response.getResponseCode();
+    
+    if (responseCode === 200) {
+      Logger.log('✅ LINE notification sent successfully');
+      logAction('SYSTEM', 'LINE_NOTIFICATION', `Order ${orderData.orderId} sent to LINE`);
+      return true;
+    } else {
+      Logger.log('❌ LINE API Error: ' + response.getContentText());
+      return false;
+    }
+    
+  } catch (error) {
+    Logger.log('❌ Error sending LINE message: ' + error.message);
+    return false;
+  }
+}
+
+/**
+ * สร้าง Flex Message สำหรับแสดงออเดอร์
+ */
+function createOrderFlexMessage(orderData) {
+  // ดึงข้อมูลเมนู
+  const menuItems = getMenuItems();
+  
+  // สร้างรายการอาหาร
+  const itemsContent = orderData.items.map(item => {
+    const menuItem = menuItems.find(m => m.id === item.menuId);
+    const menuName = menuItem ? menuItem.name : item.menuId;
+    
+    // สร้างข้อความตัวเลือก
+    let optionsText = '';
+    if (item.selectedOptions && item.selectedOptions.length > 0) {
+      optionsText = '\n(' + item.selectedOptions.map(opt => opt.replace(/\+\d+/, '')).join(', ') + ')';
+    }
+    
+    return {
+      type: 'box',
+      layout: 'horizontal',
+      contents: [
+        {
+          type: 'text',
+          text: `${item.quantity}x`,
+          size: 'sm',
+          color: '#555555',
+          flex: 0,
+          margin: 'none'
+        },
+        {
+          type: 'text',
+          text: menuName + optionsText,
+          size: 'sm',
+          color: '#111111',
+          wrap: true,
+          flex: 5,
+          margin: 'md'
+        }
+      ],
+      margin: 'md'
+    };
+  });
+  
+  // ไอคอนตามประเภทออเดอร์
+  const typeIcon = orderData.type === 'dine-in' ? '🍽️' : '📦';
+  const typeText = orderData.type === 'dine-in' ? 'ทานที่ร้าน' : 'ซื้อกลับ';
+  
+  // สร้าง Flex Message
+  const flexMessage = {
+    type: 'flex',
+    altText: `ออเดอร์ใหม่ #${orderData.orderId}`,
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '🍜 ออเดอร์ใหม่!',
+            color: '#ffffff',
+            size: 'xl',
+            weight: 'bold'
+          },
+          {
+            type: 'text',
+            text: `#${orderData.orderId}`,
+            color: '#ffffff',
+            size: 'sm',
+            margin: 'xs'
+          }
+        ],
+        backgroundColor: '#F59E0B',
+        paddingAll: '20px'
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: 'ประเภท:',
+                size: 'sm',
+                color: '#555555',
+                flex: 0
+              },
+              {
+                type: 'text',
+                text: `${typeIcon} ${typeText}`,
+                size: 'sm',
+                color: '#111111',
+                weight: 'bold',
+                flex: 5,
+                margin: 'md'
+              }
+            ],
+            margin: 'none'
+          },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: 'ชำระเงิน:',
+                size: 'sm',
+                color: '#555555',
+                flex: 0
+              },
+              {
+                type: 'text',
+                text: orderData.payment === 'cash' ? '💵 เงินสด' : 
+                      orderData.payment === 'qr-code' ? '📱 QR Code' : '🏦 โอนเงิน',
+                size: 'sm',
+                color: '#111111',
+                flex: 5,
+                margin: 'md'
+              }
+            ],
+            margin: 'md'
+          },
+          {
+            type: 'separator',
+            margin: 'xl'
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: 'รายการอาหาร:',
+                size: 'sm',
+                color: '#555555',
+                weight: 'bold',
+                margin: 'md'
+              },
+              ...itemsContent
+            ]
+          },
+          {
+            type: 'separator',
+            margin: 'xl'
+          },
+          {
+            type: 'box',
+            layout: 'horizontal',
+            contents: [
+              {
+                type: 'text',
+                text: 'ยอดรวม',
+                size: 'md',
+                color: '#555555',
+                weight: 'bold'
+              },
+              {
+                type: 'text',
+                text: `${orderData.totalPrice} ฿`,
+                size: 'xl',
+                color: '#D97706',
+                weight: 'bold',
+                align: 'end'
+              }
+            ],
+            margin: 'lg'
+          }
+        ],
+        spacing: 'md',
+        paddingAll: '20px'
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            action: {
+              type: 'postback',
+              label: '✅ รับออเดอร์',
+              data: `action=accept_order&orderId=${orderData.orderId}`,
+              displayText: 'รับออเดอร์แล้ว'
+            },
+            style: 'primary',
+            color: '#10B981',
+            height: 'sm'
+          },
+          {
+            type: 'button',
+            action: {
+              type: 'uri',
+              label: '📞 โทรหาลูกค้า',
+              uri: `tel:0812345678`
+            },
+            style: 'link',
+            height: 'sm',
+            margin: 'sm'
+          }
+        ],
+        spacing: 'sm',
+        paddingAll: '20px'
+      }
+    }
+  };
+  
+  return flexMessage;
+}
+
+/**
+ * จัดการ LINE Webhook Events
+ */
+function handleLineWebhook(webhookData) {
+  try {
+    const events = webhookData.events || [];
+    
+    events.forEach(event => {
+      if (event.type === 'postback') {
+        handlePostbackEvent(event);
+      }
+    });
+    
+    // ตอบกลับ LINE ว่าได้รับ webhook แล้ว
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
+      .setMimeType(ContentService.MimeType.JSON);
+    
+  } catch (error) {
+    Logger.log('Error handling LINE webhook: ' + error.message);
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * จัดการ Postback Event จากปุ่ม LINE
+ */
+function handlePostbackEvent(event) {
+  try {
+    const data = event.postback.data;
+    const replyToken = event.replyToken;
+    
+    // Parse postback data
+    const params = {};
+    data.split('&').forEach(pair => {
+      const [key, value] = pair.split('=');
+      params[key] = value;
+    });
+    
+    if (params.action === 'accept_order') {
+      const orderId = params.orderId;
+      
+      // ตรวจสอบสถานะปัจจุบัน
+      const currentOrder = getOrderById(orderId);
+      
+      if (!currentOrder) {
+        replyLineMessage(replyToken, 'ไม่พบออเดอร์นี้ในระบบ');
+        return;
+      }
+      
+      if (currentOrder.status !== 'pending') {
+        replyLineMessage(replyToken, `⚠️ ออเดอร์นี้ถูกรับไปแล้ว (สถานะ: ${currentOrder.status})`);
+        return;
+      }
+      
+      // อัพเดทสถานะเป็น confirmed
+      const updated = updateOrderStatus(orderId, 'confirmed');
+      
+      if (updated) {
+        logAction('LINE_USER', 'ACCEPT_ORDER', `Order ${orderId} accepted via LINE`);
+        replyLineMessage(replyToken, `✅ รับออเดอร์ #${orderId} เรียบร้อยแล้ว!\n\nกำลังเริ่มทำอาหาร... 🍳`);
+      } else {
+        replyLineMessage(replyToken, '❌ เกิดข้อผิดพลาดในการอัพเดทสถานะ');
+      }
+    }
+    
+  } catch (error) {
+    Logger.log('Error handling postback: ' + error.message);
+  }
+}
+
+/**
+ * ส่งข้อความตอบกลับผ่าน LINE Reply API
+ */
+function replyLineMessage(replyToken, messageText) {
+  try {
+    const lineConfig = getLineConfig();
+    
+    if (!lineConfig.accessToken) {
+      Logger.log('LINE access token not found');
+      return;
+    }
+    
+    const url = 'https://api.line.me/v2/bot/message/reply';
+    const payload = {
+      replyToken: replyToken,
+      messages: [
+        {
+          type: 'text',
+          text: messageText
+        }
+      ]
+    };
+    
+    const options = {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + lineConfig.accessToken
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    Logger.log('LINE reply response: ' + response.getResponseCode());
+    
+  } catch (error) {
+    Logger.log('Error sending LINE reply: ' + error.message);
+  }
+}
+
+/**
+ * ดึงข้อมูลออเดอร์จาก Order ID
+ */
+function getOrderById(orderId) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName('Orders');
+    const data = sheet.getDataRange().getValues();
+    
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === orderId) {
+        return {
+          orderId: data[i][0],
+          userId: data[i][1],
+          items: JSON.parse(data[i][2] || '[]'),
+          totalPrice: Number(data[i][3]),
+          type: data[i][4],
+          payment: data[i][5],
+          status: data[i][6],
+          timestamp: data[i][7]
+        };
+      }
+    }
+    
+    return null;
+    
+  } catch (error) {
+    Logger.log('Error getting order: ' + error.message);
+    return null;
+  }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * สร้าง JSON Response
+ */
+function createResponse(success, message, data, statusCode) {
+  const response = {
+    success: success,
+    message: message,
+    data: data || null,
+    timestamp: new Date().toISOString()
+  };
+  
+  return ContentService
+    .createTextOutput(JSON.stringify(response))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Test function - ทดสอบระบบ
+ */
+function testSystem() {
+  Logger.log('=== Testing Beauty Noodle Shop Backend ===');
+  
+  // 1. Test setup
+  Logger.log('\n1. Testing database setup...');
+  const setupResult = setupDatabase();
+  Logger.log(setupResult);
+  
+  // 2. Test get menu
+  Logger.log('\n2. Testing getMenu...');
+  const menuResult = getMenuAPI();
+  Logger.log(menuResult.getContent());
+  
+  // 3. Test save order
+  Logger.log('\n3. Testing saveOrder...');
+  const testOrder = {
+    action: 'saveOrder',
+    userId: 'U1234567890',
+    items: [
+      { menuId: 'M001', quantity: 2, selectedOptions: ['เส้นเล็ก', 'เนื้อพิเศษ +20'] },
+      { menuId: 'M004', quantity: 1, selectedOptions: [] }
+    ],
+    type: 'dine-in',
+    payment: 'cash'
+  };
+  const saveResult = saveOrderAPI(testOrder);
+  Logger.log(saveResult.getContent());
+  
+  Logger.log('\n=== Test completed ===');
 }
